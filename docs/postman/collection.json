@@ -1,0 +1,201 @@
+{
+  "info": {
+    "_postman_id": "gitpilot-6f2e9d3a-5c1b-4a8e-9b3f-1d4c7e2a9b00",
+    "name": "GitPilot API",
+    "description": "GitPilot OAuth 2.1 + PKCE platform. Import and set variables: base_url, csrf, session_cookie.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api/v1" },
+    { "key": "email", "value": "dev@example.com" },
+    { "key": "password", "value": "correct horse battery staple" },
+    { "key": "csrf", "value": "" },
+    { "key": "owner", "value": "octocat" },
+    { "key": "repo", "value": "Hello-World" }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "X-CSRF-Token", "type": "string" },
+      { "key": "value", "value": "{{csrf}}", "type": "string" },
+      { "key": "in", "value": "header", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        { "name": "Health", "request": { "method": "GET", "url": "{{base_url}}/health" } },
+        { "name": "Ready", "request": { "method": "GET", "url": "{{base_url}}/ready" } }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"name\": \"Dev User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        { "name": "Me", "request": { "method": "GET", "url": "{{base_url}}/auth/me" } },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{base_url}}/auth/logout" } },
+        { "name": "Logout all", "request": { "method": "POST", "url": "{{base_url}}/auth/logout-all" } },
+        {
+          "name": "Change password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/password/change",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"{{password}}\",\n  \"new_password\": \"a-newer-horse battery staple 2026\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "OAuth",
+      "item": [
+        {
+          "name": "Begin GitHub OAuth",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/oauth/github/begin",
+            "description": "Returns 303 to GitHub. PKCE + state issued server-side."
+          }
+        },
+        {
+          "name": "Complete account link",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/oauth/link/complete",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"link_token\": \"<from 409>\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sessions",
+      "item": [
+        {
+          "name": "Fetch CSRF token",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/sessions/csrf",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "pm.environment.set('csrf', json.csrf_token);"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        { "name": "List sessions", "request": { "method": "GET", "url": "{{base_url}}/sessions" } }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        { "name": "Profile", "request": { "method": "GET", "url": "{{base_url}}/users/me" } },
+        {
+          "name": "Update profile",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/users/me",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Dev User\",\n  \"locale\": \"en\"\n}" }
+          }
+        },
+        {
+          "name": "Security overview",
+          "request": { "method": "GET", "url": "{{base_url}}/users/me/security" }
+        },
+        {
+          "name": "Connected accounts",
+          "request": { "method": "GET", "url": "{{base_url}}/users/me/connected-accounts" }
+        }
+      ]
+    },
+    {
+      "name": "Repositories",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{base_url}}/repositories" } },
+        { "name": "Get repo", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}" } },
+        { "name": "Branches", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/branches" } },
+        { "name": "Commits", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/commits" } },
+        { "name": "Pull requests", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/pulls" } },
+        { "name": "Issues", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/issues" } },
+        { "name": "Releases", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/releases" } },
+        { "name": "Labels", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/labels" } },
+        { "name": "Milestones", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/milestones" } },
+        { "name": "Workflows", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/workflows" } },
+        { "name": "Workflow runs", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/actions/runs" } },
+        { "name": "Collaborators", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/collaborators" } },
+        { "name": "Teams", "request": { "method": "GET", "url": "{{base_url}}/repositories/{{owner}}/{{repo}}/teams" } },
+        { "name": "Organizations", "request": { "method": "GET", "url": "{{base_url}}/repositories/orgs" } },
+        {
+          "name": "GraphQL",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/repositories/graphql",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"query { viewer { login } }\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "API keys",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{base_url}}/api-keys" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/api-keys",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"CI\",\n  \"scopes\": [\"repos:read\", \"audit:read\"]\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        { "name": "List events", "request": { "method": "GET", "url": "{{base_url}}/audit?limit=50" } }
+      ]
+    }
+  ]
+}

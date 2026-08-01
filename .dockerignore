@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python
+backend/.venv
+backend/.pytest_cache
+backend/.coverage
+**/__pycache__
+*.py[cod]
+
+# Node
+frontend/node_modules
+frontend/.next
+frontend/.turbo
+
+# Env / secrets
+.env
+**/.env
+!**/.env.example
+
+# Editors / OS
+.idea
+.vscode
+*.swp
+.DS_Store
+
+# Docs / misc
+docs
+*.md
