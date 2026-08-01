@@ -3,14 +3,18 @@
 Every upstream failure is wrapped in a typed exception so the API layer can map
 it to a stable error code + status without leaking GitHub internals.
 """
+
 from __future__ import annotations
+
+from typing import Any
 
 from app.core.exceptions import (
     AuthorizationError,
+    ConflictError,
+    DomainError,
     GitHubProviderError,
     GitHubRateLimitedError,
     NotFoundError,
-    RateLimitExceeded,
     ValidationFailure,
 )
 
@@ -18,7 +22,9 @@ from app.core.exceptions import (
 class GitHubClientError(Exception):
     """Base class for errors raised by the GitHub client."""
 
-    def __init__(self, message: str, *, status_code: int | None = None, body: dict | None = None) -> None:
+    def __init__(
+        self, message: str, *, status_code: int | None = None, body: dict[str, Any] | None = None
+    ) -> None:
         self.status_code = status_code
         self.body = body or {}
         super().__init__(message)
@@ -39,7 +45,7 @@ class GitHubNotFoundError(GitHubClientError):
 class GitHubRateLimitError(GitHubClientError):
     """429 or 403 with rate-limit headers — quota exhausted."""
 
-    def __init__(self, message: str, *, reset_at: int | None = None, **kw: object) -> None:
+    def __init__(self, message: str, *, reset_at: int | None = None, **kw: Any) -> None:
         self.reset_at = reset_at
         super().__init__(message, **kw)
 
@@ -69,7 +75,7 @@ _STATUS_TO_EXC: dict[int, type[GitHubClientError]] = {
 }
 
 
-def normalize_github_error(status_code: int, body: dict | None) -> GitHubClientError:
+def normalize_github_error(status_code: int, body: dict[str, Any] | None) -> GitHubClientError:
     body = body or {}
     message = body.get("message") or f"GitHub API error ({status_code})"
     exc_cls = _STATUS_TO_EXC.get(status_code)
@@ -80,7 +86,7 @@ def normalize_github_error(status_code: int, body: dict | None) -> GitHubClientE
     return GitHubClientError(message, status_code=status_code, body=body)
 
 
-def to_domain_exception(exc: GitHubClientError) -> GitHubProviderError:
+def to_domain_exception(exc: GitHubClientError) -> DomainError:
     """Map a client error to a domain exception understood by the API layer."""
     if isinstance(exc, GitHubRateLimitError):
         return GitHubRateLimitedError(
@@ -96,7 +102,5 @@ def to_domain_exception(exc: GitHubClientError) -> GitHubProviderError:
     if isinstance(exc, GitHubValidationError):
         return ValidationFailure("GitHub rejected the request.", upstream=exc.body)
     if isinstance(exc, GitHubConflictError):
-        from app.core.exceptions import ConflictError
-
         return ConflictError(str(exc))
     return GitHubProviderError("GitHub is unavailable or returned an unexpected error.")

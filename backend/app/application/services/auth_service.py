@@ -3,11 +3,12 @@
 Owns the user lifecycle orchestration. All security-sensitive transitions are
 audited. Uses the OAuthService for GitHub-driven flows.
 """
+
 from __future__ import annotations
 
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,12 +21,11 @@ from app.core.config import Settings
 from app.core.exceptions import (
     AuthenticationError,
     ConflictError,
-    PendingVerificationError,
     ValidationFailure,
 )
 from app.core.logging import get_logger
 from app.core.security import hash_password, verify_password
-from app.domain.models.enums import AuditEventType, AuthProvider
+from app.domain.models.enums import AuditEventType, UserStatus
 from app.domain.models.identity import GitHubAccount, User
 from app.infrastructure.redis.client import RedisClient
 
@@ -163,7 +163,7 @@ class AuthService:
             )
             raise AuthenticationError("Invalid email or password.")
 
-        user.last_login_at = datetime.now(timezone.utc)
+        user.last_login_at = datetime.now(UTC)
         session_token, _db_session = await self._sessions.create_session(
             user_id=user.id,
             user_agent=user_agent,
@@ -191,7 +191,11 @@ class AuthService:
         user_agent: str | None,
     ) -> None:
         user = await self._db.get(User, user_id)
-        if user is None or not user.password_hash or not verify_password(current_password, user.password_hash):
+        if (
+            user is None
+            or not user.password_hash
+            or not verify_password(current_password, user.password_hash)
+        ):
             raise AuthenticationError("Current password is incorrect.")
         user.password_hash = hash_password(new_password, self._settings)
         await self._audit.record(
@@ -209,16 +213,21 @@ class AuthService:
         await self._redis.set_json(f"{_VERIFY_PREFIX}{token}", {"user_id": str(user_id)}, ttl=ttl)
         return token
 
-    async def verify_email(self, *, token: str, user_id: uuid.UUID) -> bool:
+    async def verify_email(self, *, token: str, user_id: uuid.UUID | None = None) -> bool:
         key = f"{_VERIFY_PREFIX}{token}"
         payload = await self._redis.get_json(key)
-        if not payload or payload.get("user_id") != str(user_id):
+        if not payload:
             return False
-        user = await self._db.get(User, user_id)
+        stored_user_id = payload.get("user_id")
+        if user_id is not None and stored_user_id != str(user_id):
+            return False
+        if stored_user_id is None:
+            return False
+        user = await self._db.get(User, uuid.UUID(stored_user_id))
         if user:
             user.email_verified = True
-            if user.status == "pending_email":
-                user.status = "active"
+            if user.status == UserStatus.PENDING_EMAIL.value:
+                user.status = UserStatus.ACTIVE.value
             await self._db.flush()
         await self._redis.delete(key)
         return True

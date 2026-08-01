@@ -1,21 +1,24 @@
 """Authentication endpoints: register, login, logout, me, verification, linking."""
+
 from __future__ import annotations
 
-from typing import Annotated
-from uuid import UUID
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.cookies import clear_session_cookie, set_session_cookie
-from app.api.dependencies import CsrfGuard, CurrentUser, get_authenticated_context
+from app.api.dependencies import (
+    AuthenticatedContext,
+    CsrfGuard,
+    CurrentUser,
+    get_authenticated_context,
+)
 from app.application.dependencies import Services, get_services
 from app.core.config import get_settings
-from app.core.exceptions import ConflictError, SessionExpiredError, ValidationFailure
+from app.core.exceptions import ConflictError, ValidationFailure
 from app.core.logging import get_logger
-from app.domain.models.enums import AuditEventType
 from app.schemas import (
     AccountLinkRequest,
-    AccountLinkStatusResponse,
     GenericSuccess,
     LoginRequest,
     PasswordChangeRequest,
@@ -107,8 +110,8 @@ async def logout(
 async def logout_all(
     request: Request,
     response: Response,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
 ) -> GenericSuccess:
     settings = get_settings()
     revoked = await services.sessions.revoke_all_for_user(
@@ -120,16 +123,18 @@ async def logout_all(
 
 
 @router.get("/me", response_model=UserProfile, summary="Current user profile")
-async def me(current_user: CurrentUser, services: Annotated[Services, Depends(get_services)]) -> UserProfile:
+async def me(
+    current_user: CurrentUser, services: Annotated[Services, Depends(get_services)]
+) -> UserProfile:
     return UserProfile.model_validate(current_user)
 
 
 @router.post("/password/change", response_model=GenericSuccess, summary="Change password")
 async def change_password(
     payload: PasswordChangeRequest,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     await services.auth.change_password(
         user_id=context.user.id,
@@ -144,14 +149,13 @@ async def change_password(
 
 @router.post("/email/verify", response_model=GenericSuccess, summary="Verify email address")
 async def verify_email(
-    payload: dict,
-    current_user: CurrentUser,
+    payload: dict[str, Any],
     services: Annotated[Services, Depends(get_services)],
 ) -> GenericSuccess:
     token = payload.get("token")
     if not token:
         raise ValidationFailure("Verification token is required.")
-    ok = await services.auth.verify_email(token=token, user_id=current_user.id)
+    ok = await services.auth.verify_email(token=token)
     await services.db.commit()
     if not ok:
         raise ValidationFailure("Invalid or expired verification token.")
@@ -187,8 +191,8 @@ async def resend_verification(
 @router.post("/link/github", response_model=GenericSuccess, summary="Link a GitHub account")
 async def link_github(
     payload: AccountLinkRequest,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
 ) -> GenericSuccess:
     # The user performed the GitHub authorize step with a link state; the callback
     # already exchanged the code. This endpoint completes linking using the code

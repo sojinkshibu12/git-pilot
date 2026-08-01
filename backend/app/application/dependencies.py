@@ -3,6 +3,7 @@
 Services are constructed per-request, sharing the request-scoped DB session and
 the shared infrastructure singletons on `request.app.state`.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -63,11 +64,19 @@ async def get_services(
         settings=settings, db=session, vault=vault, audit=audit, github=github, redis=redis
     )
     auth = AuthService(
-        settings=settings, db=session, redis=redis, audit=audit, sessions=sessions, oauth=oauth, tokens=tokens
+        settings=settings,
+        db=session,
+        redis=redis,
+        audit=audit,
+        sessions=sessions,
+        oauth=oauth,
+        tokens=tokens,
     )
     users = UserService(db=session, audit=audit, sessions=sessions, tokens=tokens, github=github)
     repos = RepositoryService(github=github, tokens=tokens, audit=audit)
-    contributions = ContributionService(db=session, github=github, tokens=tokens, audit=audit, redis=redis)
+    contributions = ContributionService(
+        db=session, github=github, tokens=tokens, audit=audit, redis=redis
+    )
     rate_limiter = RateLimiter(redis)
 
     return Services(

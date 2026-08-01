@@ -4,6 +4,7 @@ Used for login endpoints (per IP + per account), the OAuth callback, and global
 API protection. Prevents brute-force credential stuffing and OAuth state
 replay attacks.
 """
+
 from __future__ import annotations
 
 from app.core.exceptions import RateLimitExceeded

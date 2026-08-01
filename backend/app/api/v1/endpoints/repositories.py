@@ -3,6 +3,7 @@
 Every endpoint requires an authenticated session, uses the user's encrypted
 GitHub credential server-side, and audits repository access/modification.
 """
+
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
@@ -10,7 +11,11 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import CsrfGuard, get_authenticated_context
+from app.api.dependencies import (
+    AuthenticatedContext,
+    CsrfGuard,
+    get_authenticated_context,
+)
 from app.application.dependencies import Services, get_services
 from app.schemas import GenericSuccess
 
@@ -99,11 +104,11 @@ class GraphQLQuery(BaseModel):
 # -- Read -------------------------------------------------------------- #
 @router.get("/", summary="List repositories (paginated)")
 async def list_repositories(
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     page: int = Query(1, ge=1),
     per_page: int = Query(9, ge=1, le=100),
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+) -> dict[str, Any]:
     return await services.repos.list_repositories_paginated(
         context.user.id, page=page, per_page=per_page
     )
@@ -111,9 +116,9 @@ async def list_repositories(
 
 @router.get("/contributions", summary="Yearly contribution totals")
 async def contributions(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return await services.repos.get_contributions_summary(context.user.id)
 
 
@@ -121,9 +126,9 @@ async def contributions(
 async def get_repository(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> Any:
     return await services.repos.get_repository(context.user.id, owner, repo)
 
 
@@ -131,9 +136,9 @@ async def get_repository(
 async def list_branches(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"branches": await services.repos.list_branches(context.user.id, owner, repo)}
 
 
@@ -141,10 +146,10 @@ async def list_branches(
 async def list_commits(
     owner: str,
     repo: str,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     sha: str | None = None,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+) -> dict[str, Any]:
     return {"commits": await services.repos.list_commits(context.user.id, owner, repo, sha=sha)}
 
 
@@ -152,11 +157,15 @@ async def list_commits(
 async def list_pulls(
     owner: str,
     repo: str,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     state: str = "open",
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
-    return {"pull_requests": await services.repos.list_pull_requests(context.user.id, owner, repo, state=state)}
+) -> dict[str, Any]:
+    return {
+        "pull_requests": await services.repos.list_pull_requests(
+            context.user.id, owner, repo, state=state
+        )
+    }
 
 
 @router.get("/{owner}/{repo}/pulls/{number}", summary="Get pull request")
@@ -164,9 +173,9 @@ async def get_pull(
     owner: str,
     repo: str,
     number: int,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> Any:
     return await services.repos.get_pull_request(context.user.id, owner, repo, number)
 
 
@@ -174,10 +183,10 @@ async def get_pull(
 async def list_issues(
     owner: str,
     repo: str,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     state: str = "open",
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+) -> dict[str, Any]:
     return {"issues": await services.repos.list_issues(context.user.id, owner, repo, state=state)}
 
 
@@ -186,9 +195,9 @@ async def get_issue(
     owner: str,
     repo: str,
     number: int,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> Any:
     return await services.repos.get_issue(context.user.id, owner, repo, number)
 
 
@@ -196,9 +205,9 @@ async def get_issue(
 async def list_releases(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"releases": await services.repos.list_releases(context.user.id, owner, repo)}
 
 
@@ -206,9 +215,9 @@ async def list_releases(
 async def list_labels(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"labels": await services.repos.list_labels(context.user.id, owner, repo)}
 
 
@@ -216,9 +225,9 @@ async def list_labels(
 async def list_milestones(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"milestones": await services.repos.list_milestones(context.user.id, owner, repo)}
 
 
@@ -226,9 +235,9 @@ async def list_milestones(
 async def list_workflows(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"workflows": await services.repos.list_workflows(context.user.id, owner, repo)}
 
 
@@ -236,9 +245,9 @@ async def list_workflows(
 async def list_workflow_runs(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"workflow_runs": await services.repos.list_workflow_runs(context.user.id, owner, repo)}
 
 
@@ -246,9 +255,9 @@ async def list_workflow_runs(
 async def list_collaborators(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"collaborators": await services.repos.list_collaborators(context.user.id, owner, repo)}
 
 
@@ -256,9 +265,9 @@ async def list_collaborators(
 async def list_teams(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"teams": await services.repos.list_teams(context.user.id, owner, repo)}
 
 
@@ -266,17 +275,17 @@ async def list_teams(
 async def list_discussions(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"discussions": await services.repos.list_discussions(context.user.id, owner, repo)}
 
 
 @router.get("/orgs", summary="List organizations")
 async def list_orgs(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"organizations": await services.repos.list_organizations(context.user.id)}
 
 
@@ -284,9 +293,9 @@ async def list_orgs(
 @router.post("/", response_model=GenericSuccess, summary="Create repository")
 async def create_repository(
     payload: RepoCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     repo = await services.repos.create_repository(context.user.id, **payload.model_dump())
     await services.db.commit()
@@ -297,10 +306,10 @@ async def create_repository(
 async def fork_repository(
     owner: str,
     repo: str,
-    payload: dict,
-    context=Depends(get_authenticated_context),
+    payload: dict[str, Any],
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     forked = await services.repos.fork_repository(
         context.user.id, owner, repo, organization=payload.get("organization")
@@ -313,9 +322,9 @@ async def fork_repository(
 async def delete_repository(
     owner: str,
     repo: str,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     await services.repos.delete_repository(context.user.id, owner, repo)
     await services.db.commit()
@@ -327,11 +336,13 @@ async def create_branch(
     owner: str,
     repo: str,
     payload: BranchCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
-    await services.repos.create_branch(context.user.id, owner, repo, name=payload.name, from_sha=payload.from_sha)
+    await services.repos.create_branch(
+        context.user.id, owner, repo, name=payload.name, from_sha=payload.from_sha
+    )
     await services.db.commit()
     return GenericSuccess(detail="Branch created.")
 
@@ -341,9 +352,9 @@ async def merge_branches(
     owner: str,
     repo: str,
     payload: MergeRequest,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     result = await services.repos.merge_branch(
         context.user.id, owner, repo, base=payload.base, head=payload.head
@@ -357,27 +368,36 @@ async def create_pull(
     owner: str,
     repo: str,
     payload: PullRequestCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     pr = await services.repos.create_pull_request(
-        context.user.id, owner, repo,
-        title=payload.title, head=payload.head, base=payload.base, body=payload.body,
+        context.user.id,
+        owner,
+        repo,
+        title=payload.title,
+        head=payload.head,
+        base=payload.base,
+        body=payload.body,
     )
     await services.db.commit()
     return GenericSuccess(detail="Pull request created.", data=pr.model_dump())
 
 
-@router.put("/{owner}/{repo}/pulls/{number}/merge", response_model=GenericSuccess, summary="Merge pull request")
+@router.put(
+    "/{owner}/{repo}/pulls/{number}/merge",
+    response_model=GenericSuccess,
+    summary="Merge pull request",
+)
 async def merge_pull(
     owner: str,
     repo: str,
     number: int,
-    payload: dict,
-    context=Depends(get_authenticated_context),
+    payload: dict[str, Any],
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     result = await services.repos.merge_pull_request(
         context.user.id, owner, repo, number, merge_method=payload.get("merge_method", "merge")
@@ -396,11 +416,13 @@ async def request_reviewers(
     repo: str,
     number: int,
     payload: ReviewerRequest,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
-    await services.repos.request_reviewers(context.user.id, owner, repo, number, reviewers=payload.reviewers)
+    await services.repos.request_reviewers(
+        context.user.id, owner, repo, number, reviewers=payload.reviewers
+    )
     await services.db.commit()
     return GenericSuccess(detail="Reviewers requested.")
 
@@ -415,9 +437,9 @@ async def submit_review(
     repo: str,
     number: int,
     payload: ReviewSubmit,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     result = await services.repos.submit_review(
         context.user.id, owner, repo, number, body=payload.body or "", event=payload.event
@@ -431,55 +453,67 @@ async def create_issue(
     owner: str,
     repo: str,
     payload: IssueCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
-    issue = await services.repos.create_issue(context.user.id, owner, repo, title=payload.title, body=payload.body)
+    issue = await services.repos.create_issue(
+        context.user.id, owner, repo, title=payload.title, body=payload.body
+    )
     await services.db.commit()
     return GenericSuccess(detail="Issue created.", data=issue.model_dump())
 
 
-@router.patch("/{owner}/{repo}/issues/{number}", response_model=GenericSuccess, summary="Update issue")
+@router.patch(
+    "/{owner}/{repo}/issues/{number}", response_model=GenericSuccess, summary="Update issue"
+)
 async def update_issue(
     owner: str,
     repo: str,
     number: int,
-    payload: dict,
-    context=Depends(get_authenticated_context),
+    payload: dict[str, Any],
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     issue = await services.repos.update_issue(context.user.id, owner, repo, number, **payload)
     await services.db.commit()
     return GenericSuccess(detail="Issue updated.", data=issue.model_dump())
 
 
-@router.post("/{owner}/{repo}/issues/{number}/close", response_model=GenericSuccess, summary="Close issue")
+@router.post(
+    "/{owner}/{repo}/issues/{number}/close", response_model=GenericSuccess, summary="Close issue"
+)
 async def close_issue(
     owner: str,
     repo: str,
     number: int,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     issue = await services.repos.close_issue(context.user.id, owner, repo, number)
     await services.db.commit()
     return GenericSuccess(detail="Issue closed.", data=issue.model_dump())
 
 
-@router.post("/{owner}/{repo}/issues/{number}/comments", response_model=GenericSuccess, summary="Comment on issue")
+@router.post(
+    "/{owner}/{repo}/issues/{number}/comments",
+    response_model=GenericSuccess,
+    summary="Comment on issue",
+)
 async def comment_on_issue(
     owner: str,
     repo: str,
     number: int,
     payload: CommentCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
-    comment = await services.repos.comment_on_issue(context.user.id, owner, repo, number, body=payload.body)
+    comment = await services.repos.comment_on_issue(
+        context.user.id, owner, repo, number, body=payload.body
+    )
     await services.db.commit()
     return GenericSuccess(detail="Comment added.", data=comment.model_dump())
 
@@ -489,11 +523,13 @@ async def create_release(
     owner: str,
     repo: str,
     payload: ReleaseCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
-    rel = await services.repos.create_release(context.user.id, owner, repo, **payload.model_dump(exclude_none=True))
+    rel = await services.repos.create_release(
+        context.user.id, owner, repo, **payload.model_dump(exclude_none=True)
+    )
     await services.db.commit()
     return GenericSuccess(detail="Release created.", data=rel.model_dump())
 
@@ -503,43 +539,60 @@ async def create_label(
     owner: str,
     repo: str,
     payload: LabelCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     label = await services.repos.create_label(
-        context.user.id, owner, repo, name=payload.name, color=payload.color, description=payload.description
+        context.user.id,
+        owner,
+        repo,
+        name=payload.name,
+        color=payload.color,
+        description=payload.description,
     )
     await services.db.commit()
     return GenericSuccess(detail="Label created.", data=label.model_dump())
 
 
-@router.post("/{owner}/{repo}/milestones", response_model=GenericSuccess, summary="Create milestone")
+@router.post(
+    "/{owner}/{repo}/milestones", response_model=GenericSuccess, summary="Create milestone"
+)
 async def create_milestone(
     owner: str,
     repo: str,
     payload: MilestoneCreate,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
-    ms = await services.repos.create_milestone(context.user.id, owner, repo, title=payload.title, due_on=payload.due_on)
+    ms = await services.repos.create_milestone(
+        context.user.id, owner, repo, title=payload.title, due_on=payload.due_on
+    )
     await services.db.commit()
     return GenericSuccess(detail="Milestone created.", data=ms.model_dump())
 
 
-@router.post("/{owner}/{repo}/actions/dispatch", response_model=GenericSuccess, summary="Trigger GitHub Actions workflow")
+@router.post(
+    "/{owner}/{repo}/actions/dispatch",
+    response_model=GenericSuccess,
+    summary="Trigger GitHub Actions workflow",
+)
 async def dispatch_workflow(
     owner: str,
     repo: str,
     payload: WorkflowDispatch,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     await services.repos.dispatch_workflow(
-        context.user.id, owner, repo,
-        workflow_id=payload.workflow_id, ref=payload.ref, inputs=payload.inputs,
+        context.user.id,
+        owner,
+        repo,
+        workflow_id=payload.workflow_id,
+        ref=payload.ref,
+        inputs=payload.inputs,
     )
     await services.db.commit()
     return GenericSuccess(detail="Workflow dispatched.")
@@ -548,10 +601,10 @@ async def dispatch_workflow(
 @router.post("/graphql", summary="Execute arbitrary GraphQL against GitHub")
 async def graphql(
     payload: GraphQLQuery,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+) -> dict[str, Any]:
     data = await services.repos.graphql(context.user.id, payload.query, payload.variables)
     await services.db.commit()
     return {"data": data}

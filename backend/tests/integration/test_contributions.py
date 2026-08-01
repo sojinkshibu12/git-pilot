@@ -1,8 +1,9 @@
 """Integration tests: contribution heatmap aggregation, streaks, statistics."""
+
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
@@ -109,8 +110,14 @@ async def test_get_year_aggregates_from_calendar(db_session, fake_github, fake_r
 async def test_streaks_computed(db_session, fake_github, fake_redis):
     user = await _make_user(db_session)
     # Jan 3–5 + Jan 7–9 (two 3-day runs); today (Aug) has no rows → current 0.
-    for d in (date(2026, 1, 3), date(2026, 1, 4), date(2026, 1, 5),
-              date(2026, 1, 7), date(2026, 1, 8), date(2026, 1, 9)):
+    for d in (
+        date(2026, 1, 3),
+        date(2026, 1, 4),
+        date(2026, 1, 5),
+        date(2026, 1, 7),
+        date(2026, 1, 8),
+        date(2026, 1, 9),
+    ):
         db_session.add(Contribution(user_id=user.id, date=d, count=1))
     await db_session.commit()
 
@@ -129,11 +136,19 @@ async def test_statistics_computed(db_session, fake_github, fake_redis):
         (date(2026, 2, 3), 1, 0, 0, 0, 0, 0, 0),
     ]
     for d, count, cm, pr, iss, rv, repo, act in rows:
-        db_session.add(Contribution(
-            user_id=user.id, date=d, count=count,
-            commit_count=cm, pull_request_count=pr, issue_count=iss,
-            review_count=rv, repository_count=repo, action_count=act,
-        ))
+        db_session.add(
+            Contribution(
+                user_id=user.id,
+                date=d,
+                count=count,
+                commit_count=cm,
+                pull_request_count=pr,
+                issue_count=iss,
+                review_count=rv,
+                repository_count=repo,
+                action_count=act,
+            )
+        )
     await db_session.commit()
     fake_redis._data["gh:contribrepo:dev:current"] = (
         '{"repos": [{"full_name": "acme/one", "count": 3}]}'

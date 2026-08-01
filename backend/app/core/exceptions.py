@@ -3,6 +3,7 @@
 Each carries an HTTP status and a stable machine-readable error code so the API
 layer can map them to responses without leaking internals.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -115,7 +116,7 @@ class AccountLinkingRequiredError(DomainError):
         *,
         candidate_user_id: str,
         provider: str,
-        details: dict | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             "An account with this email already exists. Link it to continue.",

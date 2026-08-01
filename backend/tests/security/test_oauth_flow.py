@@ -1,14 +1,13 @@
 """Integration tests: full OAuth Authorization Code + PKCE flow (mock GitHub)."""
+
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
-from app.core.security import compute_challenge
 from app.domain.models.identity import AuditLog, OAuthState
 
 
@@ -19,7 +18,7 @@ async def _begin_flow(client, fake_redis) -> tuple[str, str]:
     assert "authorize_url" in data
     assert data["pkce_method"] == "S256"
     assert "github.com/login/oauth/authorize" in data["authorize_url"]
-    assert "code_challenge=S256" in data["authorize_url"]
+    assert "code_challenge_method=S256" in data["authorize_url"]
     state = data["state"]
     # Pull stored PKCE verifier from our fake DB to simulate a legit callback.
     # The service stores an encrypted verifier; tests can't easily read it, so we
@@ -74,7 +73,7 @@ async def test_full_oauth_login_creates_user_and_sets_cookie(client, fake_github
 
 
 @pytest.mark.asyncio
-async def test_callback_state_mismatch_returns_403(client, fake_github, settings):
+async def test_callback_state_mismatch_returns_403(client, fake_github, settings, app):
     _register_gh_user(fake_github, 1002, "mallory", "m@example.com")
     await _begin_flow(client, None)
 
@@ -86,8 +85,6 @@ async def test_callback_state_mismatch_returns_403(client, fake_github, settings
     assert resp.json()["code"] == "oauth_state_mismatch"
 
     # Audit log must record the mismatch.
-    from app.main import app
-
     db = app.state.db
     async with db.session_factory() as session:
         rows = (
@@ -103,18 +100,16 @@ async def _get_audit(client):
 
 
 @pytest.mark.asyncio
-async def test_callback_state_expired_returns_403(client, fake_github, settings):
+async def test_callback_state_expired_returns_403(client, fake_github, settings, app):
     _register_gh_user(fake_github, 1003, "delayed", "d@example.com")
     auth_url, state = await _begin_flow(client, None)
     challenge = _challenge_from_url(auth_url)
 
     # Force-expire the state row.
-    from app.main import app
-
     db = app.state.db
     async with db.session_factory() as session:
         row = await session.scalar(select(OAuthState))
-        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         await session.commit()
 
     resp = await client.get(
@@ -135,7 +130,9 @@ async def test_callback_replay_is_rejected(client, fake_github, settings):
     first = await client.get("/api/v1/oauth/github/callback", params={"state": state, "code": code})
     assert first.status_code == 303
 
-    second = await client.get("/api/v1/oauth/github/callback", params={"state": state, "code": code})
+    second = await client.get(
+        "/api/v1/oauth/github/callback", params={"state": state, "code": code}
+    )
     assert second.status_code == 403
     assert second.json()["code"] == "oauth_state_mismatch"
 
@@ -151,14 +148,12 @@ async def test_callback_access_denied_is_mapped(client, fake_github):
 
 
 @pytest.mark.asyncio
-async def test_pkce_verifier_mismatch_rejected(client, fake_github, settings):
+async def test_pkce_verifier_mismatch_rejected(client, fake_github, settings, app):
     """Simulate a callback whose PKCE verifier does not match the challenge."""
     _register_gh_user(fake_github, 1005, "pkce", "p@example.com")
     auth_url, state = await _begin_flow(client, None)
 
     # Corrupt the stored challenge hash so validation fails deterministically.
-    from app.main import app
-
     from app.domain.models.identity import PKCEChallenge
 
     db = app.state.db
@@ -179,11 +174,21 @@ async def test_pkce_verifier_mismatch_rejected(client, fake_github, settings):
 async def test_missing_email_resolved_from_user_emails(client, fake_github):
     gh_id = 2001
     fake_github.users[gh_id] = {
-        "id": gh_id, "login": "noemail", "name": None, "avatar_url": None,
-        "html_url": "", "email": None, "type": "User",
+        "id": gh_id,
+        "login": "noemail",
+        "name": None,
+        "avatar_url": None,
+        "html_url": "",
+        "email": None,
+        "type": "User",
     }
     fake_github.emails = [
-        {"email": "verified-primary@example.com", "primary": True, "verified": True, "visibility": "private"},
+        {
+            "email": "verified-primary@example.com",
+            "primary": True,
+            "verified": True,
+            "visibility": "private",
+        },
     ]
     auth_url, state = await _begin_flow(client, None)
     challenge = _challenge_from_url(auth_url)

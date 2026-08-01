@@ -3,6 +3,7 @@
 Every log line carries: timestamp, level, event, environment, request id,
 correlation id, and (when available) user / session context.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,16 +16,15 @@ from pythonjsonlogger.json import JsonFormatter
 
 from app.core.config import Environment, get_settings
 
-_CONFIG = get_settings()
-
 
 def _get_renderer() -> Any:
-    if _CONFIG.APP_ENV in {Environment.LOCAL, Environment.TESTING}:
+    config = get_settings()
+    if config.APP_ENV in {Environment.LOCAL, Environment.TESTING}:
         return structlog.dev.ConsoleRenderer(colors=True, sort_keys=False)
     return structlog.processors.JSONRenderer(serializer=_json_serializer)
 
 
-def _json_serializer(data: dict) -> str:
+def _json_serializer(data: dict[str, Any]) -> str:
     import json
 
     return json.dumps(data, default=str, separators=(",", ":"))
@@ -32,7 +32,8 @@ def _json_serializer(data: dict) -> str:
 
 def setup_logging(level: str | None = None) -> None:
     """Configure the root logger + structlog pipeline."""
-    log_level = (level or ("DEBUG" if _CONFIG.DEBUG else "INFO")).upper()
+    config = get_settings()
+    log_level = (level or ("DEBUG" if config.DEBUG else "INFO")).upper()
 
     structlog.configure(
         processors=[
@@ -55,8 +56,8 @@ def setup_logging(level: str | None = None) -> None:
     root.handlers.clear()
 
     handler = logging.StreamHandler(sys.stdout)
-    if _CONFIG.APP_ENV in {Environment.STAGING, Environment.PRODUCTION}:
-        formatter = JsonFormatter(
+    if config.APP_ENV in {Environment.STAGING, Environment.PRODUCTION}:
+        formatter: logging.Formatter = JsonFormatter(
             fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
             rename_fields={"levelname": "level", "asctime": "ts", "name": "logger"},
         )
@@ -70,7 +71,7 @@ def setup_logging(level: str | None = None) -> None:
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(name)
+    return structlog.stdlib.get_logger(name)
 
 
 class Timer:
@@ -81,12 +82,14 @@ class Timer:
         self._logger = logger
         self._started: float | None = None
 
-    def __enter__(self) -> "Timer":
+    def __enter__(self) -> Timer:
         self._started = time.perf_counter()
         return self
 
     def __exit__(self, *exc: Any) -> None:
         assert self._started is not None
-        self._logger.debug("timed_operation", operation=self._label, duration_ms=round(
-            (time.perf_counter() - self._started) * 1000, 2
-        ))
+        self._logger.debug(
+            "timed_operation",
+            operation=self._label,
+            duration_ms=round((time.perf_counter() - self._started) * 1000, 2),
+        )

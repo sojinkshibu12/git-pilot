@@ -1,15 +1,16 @@
 """API key management (machine-to-machine access)."""
+
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, update
 
-from app.api.dependencies import CsrfGuard, get_authenticated_context
+from app.api.dependencies import AuthenticatedContext, CsrfGuard, get_authenticated_context
 from app.application.dependencies import Services, get_services
-from app.core.security import generate_session_id
 from app.domain.models.enums import AuditEventType
 from app.domain.models.identity import APIKey
 from app.schemas import APIKeyCreateRequest, APIKeyCreateResponse, APIKeySchema, GenericSuccess
@@ -19,8 +20,8 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
 @router.get("/", response_model=list[APIKeySchema], summary="List API keys")
 async def list_keys(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
 ) -> list[APIKeySchema]:
     keys = (
         await services.db.scalars(
@@ -29,19 +30,30 @@ async def list_keys(
             .order_by(APIKey.created_at.desc())
         )
     ).all()
-    return [APIKeySchema.model_validate(k) for k in keys]
+    result = []
+    for k in keys:
+        item = APIKeySchema.model_construct(
+            id=k.id,
+            name=k.name,
+            key_prefix=k.key_prefix,
+            scopes=k.scopes.split(),
+            last_used_at=k.last_used_at,
+            expires_at=k.expires_at,
+            created_at=k.created_at,
+        )
+        result.append(item)
+    return result
 
 
 @router.post("/", response_model=APIKeyCreateResponse, status_code=201, summary="Create API key")
 async def create_key(
     payload: APIKeyCreateRequest,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> APIKeyCreateResponse:
     import hashlib
-
-    from app.core.security import secrets
+    import secrets
 
     raw = f"gp_{secrets.token_urlsafe(32)}"
     prefix = raw[:10]
@@ -67,16 +79,16 @@ async def create_key(
 @router.post("/{key_id}/revoke", response_model=GenericSuccess, summary="Revoke API key")
 async def revoke_key(
     key_id: UUID,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     await services.db.execute(
         update(APIKey)
         .where(APIKey.id == key_id, APIKey.user_id == context.user.id)
-        .values(deleted_at=datetime.now(timezone.utc))
+        .values(deleted_at=datetime.now(UTC))
     )
     await services.audit.record(
         AuditEventType.API_KEY_REVOKED,

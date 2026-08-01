@@ -5,6 +5,7 @@ Run:  playwright test   (from backend/ or frontend/, see playwright.config.ts)
 Targets the Docker stack (frontend :3000, backend :8000) with a real GitHub
 OAuth App configured for E2E.
 """
+
 from __future__ import annotations
 
 import re
@@ -19,7 +20,9 @@ def _goto(path: str, page: Page) -> None:
 def test_login_page_renders(page: Page) -> None:
     _goto("/login", page)
     expect(page.get_by_role("heading", name="Welcome back")).to_be_visible()
-    expect(page.get_by_role("button", name=re.compile("Continue with GitHub", re.I))).to_be_visible()
+    expect(
+        page.get_by_role("button", name=re.compile("Continue with GitHub", re.I))
+    ).to_be_visible()
 
 
 def test_register_page_renders(page: Page) -> None:
@@ -32,7 +35,10 @@ def test_github_button_starts_oauth(page: Page) -> None:
     page.get_by_role("button", name=re.compile("Continue with GitHub", re.I)).click()
     # Redirects to GitHub authorize endpoint (may be blocked in CI without creds,
     # so we assert navigation started toward github.com).
-    page.wait_for_url(re.compile(r"https?://github\.com/login/oauth/authorize.*code_challenge=S256"), timeout=15000)
+    page.wait_for_url(
+        re.compile(r"https?://github\.com/login/oauth/authorize.*code_challenge=S256"),
+        timeout=15000,
+    )
 
 
 def test_callback_success_shows_dashboard(page: Page) -> None:

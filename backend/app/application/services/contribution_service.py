@@ -10,6 +10,7 @@ Every upstream error is mapped to a domain exception (or degrades to zeros for
 the optional type breakdowns); a user without a linked GitHub account gets an
 empty, `connected=false` response instead of an error.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -45,7 +46,7 @@ _REPO_CONTRIB_CACHE_TTL = 86400 * 30  # 30 days
 
 # Per-(user, year) in-process locks so concurrent requests (double render,
 # multiple tabs) never re-run the expensive GitHub aggregation in parallel.
-_AGGREGATION_LOCKS: dict[tuple[str, int], asyncio.Lock] = {}
+_AGGREGATION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 
 
 def _level(count: int) -> int:
@@ -99,7 +100,9 @@ class ContributionService:
         return start, end
 
     # -- Public -------------------------------------------------------- #
-    async def get_year(self, user_id: uuid.UUID, year: int, *, refresh: bool = False) -> dict[str, Any]:
+    async def get_year(
+        self, user_id: uuid.UUID, year: int, *, refresh: bool = False
+    ) -> dict[str, Any]:
         """Grid payload for a year: one entry per day with type breakdown."""
         if refresh:
             await self.refresh(user_id, year)
@@ -187,11 +190,19 @@ class ContributionService:
         weekday_totals: dict[int, int] = {}
         for row in rows:
             if (row.count or 0) > 0:
-                month_totals[row.date.month] = month_totals.get(row.date.month, 0) + (row.count or 0)
-                weekday_totals[row.date.weekday()] = weekday_totals.get(row.date.weekday(), 0) + (row.count or 0)
+                month_totals[row.date.month] = month_totals.get(row.date.month, 0) + (
+                    row.count or 0
+                )
+                weekday_totals[row.date.weekday()] = weekday_totals.get(row.date.weekday(), 0) + (
+                    row.count or 0
+                )
 
-        most_active_month = max(month_totals, key=month_totals.get) if month_totals else None
-        most_active_weekday = max(weekday_totals, key=weekday_totals.get) if weekday_totals else None
+        most_active_month = (
+            max(month_totals, key=lambda k: month_totals[k]) if month_totals else None
+        )
+        most_active_weekday = (
+            max(weekday_totals, key=lambda k: weekday_totals[k]) if weekday_totals else None
+        )
 
         await self._audit.record(
             AuditEventType.REPOSITORY_ACCESS,
@@ -205,10 +216,16 @@ class ContributionService:
             "days_contributed": days_contributed,
             "average_per_day": round(total / elapsed, 2) if elapsed else 0,
             "most_active_month": most_active_month,
-            "most_active_month_contributions": month_totals.get(most_active_month, 0) if most_active_month else 0,
+            "most_active_month_contributions": month_totals.get(most_active_month, 0)
+            if most_active_month
+            else 0,
             "most_active_weekday": most_active_weekday,
-            "most_active_weekday_contributions": weekday_totals.get(most_active_weekday, 0) if most_active_weekday else 0,
-            "most_active_repository": await self._most_active_repository(user_id, self._label(year)),
+            "most_active_weekday_contributions": weekday_totals.get(most_active_weekday, 0)
+            if most_active_weekday
+            else 0,
+            "most_active_repository": await self._most_active_repository(
+                user_id, self._label(year)
+            ),
             "breakdown": self._breakdown(rows),
         }
 
@@ -260,9 +277,7 @@ class ContributionService:
         )
         return list(result)
 
-    async def _aggregate(
-        self, user_id: uuid.UUID, start: date, end: date, label: str
-    ) -> bool:
+    async def _aggregate(self, user_id: uuid.UUID, start: date, end: date, label: str) -> bool:
         key = (str(user_id), label)
         lock = _AGGREGATION_LOCKS.get(key)
         if lock is None:
@@ -319,7 +334,9 @@ class ContributionService:
                     {
                         "repos": [
                             {"full_name": name, "count": count}
-                            for name, count in sorted(repo_contribs.items(), key=lambda kv: kv[1], reverse=True)
+                            for name, count in sorted(
+                                repo_contribs.items(), key=lambda kv: kv[1], reverse=True
+                            )
                         ]
                     },
                     ttl=_REPO_CONTRIB_CACHE_TTL,
@@ -349,7 +366,9 @@ class ContributionService:
         commits_coro = self._github.get_commit_contribution_days(token, login, start, end)
         prs_coro = self._github.get_issue_contribution_days(token, login, start, end, pr_only=True)
         issues_coro = self._github.get_issue_contribution_days(token, login, start, end)
-        reviews_coro = self._github.get_issue_contribution_days(token, login, start, end, reviewed=True)
+        reviews_coro = self._github.get_issue_contribution_days(
+            token, login, start, end, reviewed=True
+        )
         repos_coro = self._github.list_repositories(token)
 
         commits_raw, prs, issues, reviews, repos_raw = await asyncio.gather(
@@ -384,7 +403,9 @@ class ContributionService:
             "actions": actions or {},
         }, repo_contribs
 
-    async def _most_active_repository(self, user_id: uuid.UUID, label: str) -> dict[str, Any] | None:
+    async def _most_active_repository(
+        self, user_id: uuid.UUID, label: str
+    ) -> dict[str, Any] | None:
         login = await self._tokens.github_login_for_user(user_id)
         if not login:
             return None

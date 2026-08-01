@@ -1,9 +1,8 @@
 """Integration tests: password registration/login + session management."""
+
 from __future__ import annotations
 
 import pytest
-
-from app.core.security import generate_verifier
 
 STRONG_PASSWORD = "Str0ng-Passw0rd!-2026"
 
@@ -94,7 +93,9 @@ async def test_password_change_requires_csrf(client):
     await client.post(
         "/api/v1/auth/register", json={"email": "change@example.com", "password": STRONG_PASSWORD}
     )
-    await client.post("/api/v1/auth/login", json={"email": "change@example.com", "password": STRONG_PASSWORD})
+    await client.post(
+        "/api/v1/auth/login", json={"email": "change@example.com", "password": STRONG_PASSWORD}
+    )
 
     # CSRF is required on mutating endpoints.
     resp = await client.post(
@@ -121,15 +122,15 @@ async def test_rate_limiting_on_login(client):
 
 
 @pytest.mark.asyncio
-async def test_session_expired_returns_401(client):
+async def test_session_expired_returns_401(client, app):
     await client.post(
         "/api/v1/auth/register", json={"email": "expire@example.com", "password": STRONG_PASSWORD}
     )
-    await client.post("/api/v1/auth/login", json={"email": "expire@example.com", "password": STRONG_PASSWORD})
+    await client.post(
+        "/api/v1/auth/login", json={"email": "expire@example.com", "password": STRONG_PASSWORD}
+    )
     # Force-invalidate by clearing the fake redis session store.
-    from app.main import app
-
-    app.state.redis._data.clear()
+    app.state.redis._data.clear()  # type: ignore[attr-defined]
     me = await client.get("/api/v1/users/me")
     assert me.status_code == 401
     assert me.json()["code"] == "session_expired"
@@ -140,7 +141,9 @@ async def test_revoke_all_sessions(client):
     await client.post(
         "/api/v1/auth/register", json={"email": "revoke@example.com", "password": STRONG_PASSWORD}
     )
-    await client.post("/api/v1/auth/login", json={"email": "revoke@example.com", "password": STRONG_PASSWORD})
+    await client.post(
+        "/api/v1/auth/login", json={"email": "revoke@example.com", "password": STRONG_PASSWORD}
+    )
     resp = await client.post("/api/v1/auth/logout-all")
     assert resp.status_code == 200
     me = await client.get("/api/v1/users/me")

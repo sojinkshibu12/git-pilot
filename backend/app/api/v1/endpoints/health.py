@@ -1,12 +1,12 @@
 """Health + readiness endpoints."""
+
 from __future__ import annotations
 
 import time
-from typing import Annotated
+from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 
-from app.application.dependencies import Services, get_services
 from app.schemas import HealthResponse
 
 router = APIRouter(tags=["system"])
@@ -29,7 +29,7 @@ async def health(request: Request) -> HealthResponse:
 
 
 @router.get("/ready", summary="Readiness (migrations applied, deps reachable)")
-async def ready(request: Request) -> dict:
+async def ready(request: Request) -> dict[str, Any]:
     redis = getattr(request.app.state, "redis", None)
     redis_ok = await redis.ping() if redis else False
     return {"ready": redis_ok, "redis": redis_ok}

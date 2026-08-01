@@ -10,14 +10,18 @@ Security invariants enforced here:
 - Authorization codes are exchanged by the backend only.
 - Tokens never leave the backend.
 """
+
 from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from urllib.parse import urlencode
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.audit_service import AuditService
 from app.core.config import Settings
@@ -32,15 +36,20 @@ from app.core.exceptions import (
     RedirectUriMismatchError,
 )
 from app.core.logging import get_logger
-from app.core.security import PKCEPair, TokenVault, compute_challenge, constant_time_eq, generate_state
+from app.core.security import (
+    PKCEPair,
+    TokenVault,
+    compute_challenge,
+    constant_time_eq,
+    generate_state,
+)
 from app.domain.models.enums import AuditEventType, AuthProvider, OAuthFlowStage
 from app.domain.models.github import GitHubCredential
 from app.domain.models.identity import GitHubAccount, OAuthState, PKCEChallenge, User
+from app.infrastructure.github.client import GitHubAPIClient
 from app.infrastructure.github.exceptions import GitHubClientError
 from app.infrastructure.github.models import GHAccessToken, GHUser
-from app.infrastructure.github.client import GitHubAPIClient
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from app.infrastructure.redis.client import RedisClient
 
 logger = get_logger("oauth")
 
@@ -57,7 +66,7 @@ class OAuthService:
         vault: TokenVault,
         audit: AuditService,
         github: GitHubAPIClient,
-        redis: object | None = None,
+        redis: RedisClient | None = None,
         http: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
@@ -96,7 +105,7 @@ class OAuthService:
 
         scope = scope_override or self._settings.GITHUB_SCOPE
         redirect_uri = self._settings.GITHUB_REDIRECT_URI
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         oauth_state = OAuthState(
             state_hash=state_hash,
@@ -133,7 +142,10 @@ class OAuthService:
             ip_address=ip_address,
             user_agent=user_agent,
             action="oauth.begin",
-            metadata={"scope": scope, "link_to_user_id": str(link_to_user_id) if link_to_user_id else None},
+            metadata={
+                "scope": scope,
+                "link_to_user_id": str(link_to_user_id) if link_to_user_id else None,
+            },
         )
 
         params = {
@@ -197,8 +209,11 @@ class OAuthService:
             raise OAuthStateMismatchError("Invalid OAuth state.")
 
         # TTL check
-        now = datetime.now(timezone.utc)
-        if oauth_state.expires_at < now:
+        now = datetime.now(UTC)
+        expires_at = oauth_state.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at < now:
             await self._audit.record(
                 AuditEventType.OAUTH_STATE_EXPIRED,
                 ip_address=ip_address,
@@ -299,7 +314,9 @@ class OAuthService:
             if target is None or target.deleted_at is not None:
                 raise GitHubProviderError("Linking target account not found.")
             existing = await self._db.scalar(
-                select(GitHubAccount).where(GitHubAccount.github_id == gh_user.id, GitHubAccount.deleted_at.is_(None))
+                select(GitHubAccount).where(
+                    GitHubAccount.github_id == gh_user.id, GitHubAccount.deleted_at.is_(None)
+                )
             )
             if existing is not None:
                 raise AccountLinkingRequiredError(
@@ -337,12 +354,16 @@ class OAuthService:
 
         # Find existing local account by immutable github_id (canonical identity).
         existing_account = await self._db.scalar(
-            select(GitHubAccount).where(GitHubAccount.github_id == gh_user.id, GitHubAccount.deleted_at.is_(None))
+            select(GitHubAccount).where(
+                GitHubAccount.github_id == gh_user.id, GitHubAccount.deleted_at.is_(None)
+            )
         )
 
         user: User | None = None
         if existing_account:
             user = await self._db.get(User, existing_account.user_id)
+            if user is None:
+                raise AuthenticationError("Linked account is missing its local user record.")
             await self._sync_account(existing_account, gh_user, email)
             await self._store_credential(existing_account, token_data)
             await self._audit.record(
@@ -357,7 +378,6 @@ class OAuthService:
             )
             oauth_state.flow_stage = OAuthFlowStage.COMPLETED
             await self._db.flush()
-            assert user is not None
             return user, existing_account, access_token
 
         # New identity — check for a password account with the same verified email.
@@ -557,20 +577,31 @@ class OAuthService:
             else None,
             "scope": token_data.scope or self._settings.GITHUB_SCOPE,
         }
+        if self._redis is None:
+            return link_token
         await self._redis.set_json(
             f"{_LINK_PREFIX}{link_token}", payload, ttl=self._settings.OAUTH_STATE_TTL_SECONDS
         )
         return link_token
 
-    async def _redis_get_pending_link(self, link_token: str) -> dict | None:
-        return await self._redis.get_json(f"{_LINK_PREFIX}{link_token}")
+    async def _redis_get_pending_link(self, link_token: str) -> dict[str, Any] | None:
+        if self._redis is None:
+            return None
+        return cast(
+            dict[str, Any] | None, await self._redis.get_json(f"{_LINK_PREFIX}{link_token}")
+        )
 
     async def _redis_delete_pending_link(self, link_token: str) -> None:
+        if self._redis is None:
+            return
         await self._redis.delete(f"{_LINK_PREFIX}{link_token}")
 
     async def _load_state(self, raw_state: str) -> OAuthState | None:
         state_hash = hashlib.sha256(raw_state.encode()).hexdigest()
-        return await self._db.scalar(select(OAuthState).where(OAuthState.state_hash == state_hash))
+        return cast(
+            OAuthState | None,
+            await self._db.scalar(select(OAuthState).where(OAuthState.state_hash == state_hash)),
+        )
 
     async def _exchange_code(self, code: str, verifier: str, redirect_uri: str) -> GHAccessToken:
         resp = await self._http.post(
@@ -597,9 +628,11 @@ class OAuthService:
             logger.info("github_email_unavailable", github_id=gh_user.id)
             return None
 
-    async def _sync_account(self, account: GitHubAccount, gh_user: GHUser, email: str | None) -> None:
+    async def _sync_account(
+        self, account: GitHubAccount, gh_user: GHUser, email: str | None
+    ) -> None:
         account.login = gh_user.login
-        account.display_name = gh_user.name or gh_user.display_name or account.display_name
+        account.display_name = gh_user.name or account.display_name
         account.avatar_url = gh_user.avatar_url or account.avatar_url
         account.html_url = gh_user.html_url or account.html_url
         account.location = gh_user.location or account.location
@@ -608,13 +641,17 @@ class OAuthService:
         if email:
             account.email = email
 
-    async def _store_credential(self, account: GitHubAccount, token_data: GHAccessToken) -> GitHubCredential:
+    async def _store_credential(
+        self, account: GitHubAccount, token_data: GHAccessToken
+    ) -> GitHubCredential:
         expires_at = None
         if token_data.expires_in:
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_data.expires_in)
+            expires_at = datetime.now(UTC) + timedelta(seconds=token_data.expires_in)
         refresh_expires = None
         if token_data.refresh_token_expires_in:
-            refresh_expires = datetime.now(timezone.utc) + timedelta(seconds=token_data.refresh_token_expires_in)
+            refresh_expires = datetime.now(UTC) + timedelta(
+                seconds=token_data.refresh_token_expires_in
+            )
         return await TokenServiceStub(self._db, self._vault).store_credential(
             github_account_id=account.id,
             user_id=account.user_id,

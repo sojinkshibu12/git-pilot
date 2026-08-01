@@ -1,11 +1,17 @@
 """User profile, preferences, and connected-accounts endpoints."""
+
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
-from app.api.dependencies import CsrfGuard, CurrentUser, get_authenticated_context
+from app.api.dependencies import (
+    AuthenticatedContext,
+    CsrfGuard,
+    CurrentUser,
+    get_authenticated_context,
+)
 from app.application.dependencies import Services, get_services
 from app.schemas import (
     GenericSuccess,
@@ -29,9 +35,9 @@ async def get_profile(
 @router.patch("/me", response_model=UserProfile, summary="Update profile")
 async def update_profile(
     payload: UpdateProfileRequest,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> UserProfile:
     user = await services.users.update_profile(
         context.user.id,
@@ -43,8 +49,8 @@ async def update_profile(
 
 @router.get("/me/preferences", response_model=UserPreferencesSchema, summary="Get preferences")
 async def get_preferences(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
 ) -> UserPreferencesSchema:
     prefs = await services.users.get_preferences(context.user.id)
     await services.db.commit()
@@ -54,9 +60,9 @@ async def get_preferences(
 @router.patch("/me/preferences", response_model=UserPreferencesSchema, summary="Update preferences")
 async def update_preferences(
     payload: UpdatePreferencesRequest,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> UserPreferencesSchema:
     prefs = await services.users.update_preferences(
         context.user.id, **payload.model_dump(exclude_none=True)
@@ -67,17 +73,17 @@ async def update_preferences(
 
 @router.get("/me/connected-accounts", summary="List connected identity providers")
 async def connected_accounts(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return {"accounts": await services.users.list_connected_accounts(context.user.id)}
 
 
 @router.get("/me/security", summary="Security overview (password, MFA, accounts, sessions)")
 async def security_overview(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> dict[str, Any]:
     return await services.users.security_overview(context.user.id)
 
 
@@ -88,12 +94,14 @@ async def security_overview(
 )
 async def unlink_github(
     github_account_id: str,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     import uuid
 
-    await services.auth.unlink_github(user_id=context.user.id, github_account_id=uuid.UUID(github_account_id))
+    await services.auth.unlink_github(
+        user_id=context.user.id, github_account_id=uuid.UUID(github_account_id)
+    )
     await services.db.commit()
     return GenericSuccess(detail="GitHub account unlinked.")

@@ -5,6 +5,7 @@ authoritative calendar total for that day (matches the GitHub profile exactly);
 the type columns are best-effort breakdowns (commits, PRs, issues, reviews,
 repository creations, actions) used to filter the heatmap client-side.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -43,9 +44,10 @@ class Contribution(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()"), onupdate=text("now()")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "date", name="uq_contributions_user_date"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_contributions_user_date"),)

@@ -1,4 +1,5 @@
 """Active session management endpoints."""
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -6,7 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from app.api.dependencies import CsrfGuard, get_authenticated_context
+from app.api.dependencies import AuthenticatedContext, CsrfGuard, get_authenticated_context
 from app.application.dependencies import Services, get_services
 from app.schemas import GenericSuccess, LogoutAllResponse, SessionInfo, SessionListResponse
 
@@ -15,21 +16,19 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 @router.get("/", response_model=SessionListResponse, summary="List active sessions")
 async def list_sessions(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
 ) -> SessionListResponse:
     sessions = await services.sessions.list_active(context.user.id, context.session_id)
-    return SessionListResponse(
-        sessions=[SessionInfo.model_validate(s) for s in sessions]
-    )
+    return SessionListResponse(sessions=[SessionInfo.model_validate(s) for s in sessions])
 
 
 @router.post("/{session_id}/revoke", response_model=GenericSuccess, summary="Revoke a session")
 async def revoke_session(
     session_id: UUID,
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     await services.sessions.revoke(session_id, context.user.id, reason="user_revoked")
     await services.db.commit()
@@ -38,9 +37,9 @@ async def revoke_session(
 
 @router.post("/revoke-all", response_model=LogoutAllResponse, summary="Revoke all other sessions")
 async def revoke_all(
-    context=Depends(get_authenticated_context),
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> LogoutAllResponse:
     # We keep the current session: revoke only the others.
     other_sessions = await services.sessions.list_active(context.user.id, context.session_id)
@@ -51,10 +50,12 @@ async def revoke_all(
     return LogoutAllResponse(revoked=len([s for s in other_sessions if not s.is_current]))
 
 
-@router.post("/csrf", response_model=GenericSuccess, summary="Fetch a CSRF token bound to this session")
+@router.post(
+    "/csrf", response_model=GenericSuccess, summary="Fetch a CSRF token bound to this session"
+)
 async def csrf_token(
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
 ) -> GenericSuccess:
     """Return the CSRF token for the current session (double-submit binding).
 

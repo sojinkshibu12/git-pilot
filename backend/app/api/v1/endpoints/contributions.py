@@ -3,14 +3,15 @@
 Serve the GitHub-style contribution grid (with per-type breakdowns), streak and
 statistics. Data is aggregated once from GitHub and cached per user + year.
 """
+
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.dependencies import CsrfGuard, get_authenticated_context
+from app.api.dependencies import AuthenticatedContext, CsrfGuard, get_authenticated_context
 from app.application.dependencies import Services, get_services
 from app.core.exceptions import ValidationFailure
 from app.schemas import GenericSuccess
@@ -32,52 +33,48 @@ def _year(value: int) -> int:
 
 @router.get("/", summary="Contribution heatmap for a year")
 async def get_contributions(
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     year: int = Query(default_factory=lambda: date.today().year),
     refresh: bool = Query(default=False),
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
-    return await services.contributions.get_year(
-        context.user.id, _year(year), refresh=refresh
-    )
+) -> dict[str, Any]:
+    return await services.contributions.get_year(context.user.id, _year(year), refresh=refresh)
 
 
 @router.get("/streak", summary="Current + longest contribution streaks")
 async def get_streaks(
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     year: int = Query(default_factory=lambda: date.today().year),
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+) -> dict[str, Any]:
     return await services.contributions.get_streaks(context.user.id, _year(year))
 
 
 @router.get("/statistics", summary="Contribution statistics for a year")
 async def get_statistics(
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     year: int = Query(default_factory=lambda: date.today().year),
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
+) -> dict[str, Any]:
     return await services.contributions.get_statistics(context.user.id, _year(year))
 
 
 @router.get("/{year}", summary="Contribution heatmap for a year (path form)")
 async def get_contributions_by_year(
     year: int,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     refresh: bool = Query(default=False),
-    context=Depends(get_authenticated_context),
-    services: Annotated[Services, Depends(get_services)] = None,
-):
-    return await services.contributions.get_year(
-        context.user.id, _year(year), refresh=refresh
-    )
+) -> dict[str, Any]:
+    return await services.contributions.get_year(context.user.id, _year(year), refresh=refresh)
 
 
 @router.post("/refresh", response_model=GenericSuccess, summary="Re-aggregate a year from GitHub")
 async def refresh_contributions(
-    payload: dict,
-    context=Depends(get_authenticated_context),
+    payload: dict[str, Any],
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
     _csrf: CsrfGuard = None,
-    services: Annotated[Services, Depends(get_services)] = None,
 ) -> GenericSuccess:
     year = _year(int(payload.get("year", date.today().year)))
     ok = await services.contributions.refresh(context.user.id, year)

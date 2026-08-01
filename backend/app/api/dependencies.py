@@ -10,6 +10,7 @@
 - Verifies the `X-CSRF-Token` header against the session's CSRF token for
   mutating requests (double-submit pattern with server-side binding).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -33,7 +34,9 @@ class AuthenticatedContext:
     csrf_token_hash: str
 
 
-async def _resolve_session(request: Request, services: Services) -> tuple[SessionRecord, User] | None:
+async def _resolve_session(
+    request: Request, services: Services
+) -> tuple[SessionRecord, User] | None:
     settings = get_settings()
     raw_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
     if not raw_token:

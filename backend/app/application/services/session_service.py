@@ -7,21 +7,23 @@ Two stores:
 Sessions are rotated on a timer, have absolute + idle TTLs, and are bound to a
 user-agent/IP fingerprint for anomaly detection.
 """
+
 from __future__ import annotations
 
 import hashlib
 import ipaddress
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.audit_service import AuditService
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.security import generate_session_id
 from app.domain.models.enums import AuditEventType, SessionStatus
-from app.domain.models.identity import Session, User
+from app.domain.models.identity import Session
 from app.infrastructure.redis.client import RedisClient
 from app.infrastructure.security.session_store import SessionRecord, SessionStore
 
@@ -34,7 +36,7 @@ class SessionService:
         session: AsyncSession,
         redis: RedisClient,
         settings: Settings,
-        audit: object | None = None,
+        audit: AuditService | None = None,
     ) -> None:
         self._db = session
         self._redis = redis
@@ -66,7 +68,7 @@ class SessionService:
         remember_me: bool = False,
         device_label: str | None = None,
     ) -> tuple[str, Session]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         raw_token = generate_session_id()
         token_hash = self._hash(raw_token)
         csrf_token = generate_session_id()
@@ -96,7 +98,9 @@ class SessionService:
             session_db_id=str(db_session.id),
             csrf_token_hash=csrf_hash,
             absolute_expiry=int(expires_at.timestamp()),
-            idle_expiry=int((now + timedelta(seconds=self._settings.SESSION_IDLE_TIMEOUT_SECONDS)).timestamp()),
+            idle_expiry=int(
+                (now + timedelta(seconds=self._settings.SESSION_IDLE_TIMEOUT_SECONDS)).timestamp()
+            ),
             created_at=int(now.timestamp()),
             last_used_at=int(now.timestamp()),
             ip_address=self._safe_ip(ip_address) if ip_address else None,
@@ -126,7 +130,7 @@ class SessionService:
         record = await self._store.get(raw_token)
         if record is None:
             return None
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
         # Absolute expiry
         if now > record.absolute_expiry:
             await self._store.delete(raw_token)
@@ -145,7 +149,7 @@ class SessionService:
         await self._db.execute(
             update(Session)
             .where(Session.id == session_db_id)
-            .values(last_used_at=datetime.now(timezone.utc))
+            .values(last_used_at=datetime.now(UTC))
         )
         await self._db.flush()
 
@@ -164,7 +168,9 @@ class SessionService:
                 metadata={"reason": reason},
             )
 
-    async def revoke(self, session_db_id: uuid.UUID, user_id: uuid.UUID, *, reason: str = "revoked") -> None:
+    async def revoke(
+        self, session_db_id: uuid.UUID, user_id: uuid.UUID, *, reason: str = "revoked"
+    ) -> None:
         await self._db.execute(
             update(Session)
             .where(Session.id == session_db_id, Session.user_id == user_id)
@@ -176,7 +182,9 @@ class SessionService:
         record = await self._store.get(raw_token)
         if record:
             await self._store.delete(raw_token)
-            await self.revoke(uuid.UUID(record.session_db_id), uuid.UUID(record.user_id), reason="logout")
+            await self.revoke(
+                uuid.UUID(record.session_db_id), uuid.UUID(record.user_id), reason="logout"
+            )
         await self._db.flush()
 
     async def revoke_all_for_user(self, user_id: uuid.UUID, except_token: str | None = None) -> int:
@@ -206,7 +214,7 @@ class SessionService:
         await self._store.save(new_token, record)
         await self._store.delete(raw_token)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await self._db.execute(
             update(Session)
             .where(Session.id == uuid.UUID(record.session_db_id))
@@ -218,25 +226,40 @@ class SessionService:
         await self._db.flush()
         return new_token
 
-    async def list_active(self, user_id: uuid.UUID, current_session_id: uuid.UUID | None = None) -> list[Session]:
-        stmt = select(Session).where(
-            Session.user_id == user_id,
-            Session.status == SessionStatus.ACTIVE,
-            Session.deleted_at.is_(None),
-        ).order_by(Session.created_at.desc())
+    async def touch(self, raw_token: str) -> None:
+        """Update the last-used timestamp for a session token."""
+        await self._store.touch(raw_token)
+
+    async def list_active(
+        self, user_id: uuid.UUID, current_session_id: uuid.UUID | None = None
+    ) -> list[Session]:
+        stmt = (
+            select(Session)
+            .where(
+                Session.user_id == user_id,
+                Session.status == SessionStatus.ACTIVE,
+                Session.deleted_at.is_(None),
+            )
+            .order_by(Session.created_at.desc())
+        )
         sessions = (await self._db.scalars(stmt)).all()
         for s in sessions:
             s.is_current = s.id == current_session_id
         return list(sessions)
 
     async def count_active(self, user_id: uuid.UUID) -> int:
-        return await self._db.scalar(
-            select(Session.id).where(
-                Session.user_id == user_id,
-                Session.status == SessionStatus.ACTIVE,
-                Session.deleted_at.is_(None),
-            ).limit(1)
-        ) is not None
+        return (
+            await self._db.scalar(
+                select(Session.id)
+                .where(
+                    Session.user_id == user_id,
+                    Session.status == SessionStatus.ACTIVE,
+                    Session.deleted_at.is_(None),
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     async def has_active_sessions(self, user_id: uuid.UUID) -> bool:
         return bool(

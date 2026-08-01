@@ -9,6 +9,7 @@
 
 Never reuse primitives from the client side. These are backend-only.
 """
+
 from __future__ import annotations
 
 import base64
@@ -76,7 +77,7 @@ class PKCEPair:
     method: str = _S256_ALG
 
     @classmethod
-    def generate(cls) -> "PKCEPair":
+    def generate(cls) -> PKCEPair:
         verifier = generate_verifier()
         return cls(verifier=verifier, challenge=compute_challenge(verifier))
 

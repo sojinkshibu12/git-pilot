@@ -1,10 +1,10 @@
 """Integration tests: GitHub→Password account linking."""
+
 from __future__ import annotations
 
 import hashlib
 
 import pytest
-from sqlalchemy import select
 
 STRONG_PASSWORD = "Str0ng-Passw0rd!-2026"
 
@@ -111,7 +111,11 @@ async def test_complete_link_wrong_password_rejected(client, fake_github):
 
     resp = await client.post(
         "/api/v1/oauth/link/complete",
-        json={"link_token": link_token, "password": "Totally-Wrong-Password", "email": "wronglink@example.com"},
+        json={
+            "link_token": link_token,
+            "password": "Totally-Wrong-Password",
+            "email": "wronglink@example.com",
+        },
     )
     assert resp.status_code == 401
 

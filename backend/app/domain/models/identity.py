@@ -4,19 +4,20 @@ All tables use UUID primary keys, FK + unique constraints, indexes, and soft
 deletes via `deleted_at`. Never identify a user by email or username — the
 immutable GitHub numeric ID is the canonical external identity.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -34,39 +35,33 @@ from app.domain.models.enums import (
 )
 
 if TYPE_CHECKING:
-    from app.domain.models.github import Repository, RepositoryPermission
+    from app.domain.models.github import Repository
 
 
 class User(Base, SoftDeleteMixin):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    email: Mapped[str | None] = mapped_column(
-        String(320), nullable=True, index=True, unique=True
-    )
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True, unique=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    status: Mapped[UserStatus] = mapped_column(
-        String(24), nullable=False, default=UserStatus.ACTIVE
-    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default=UserStatus.ACTIVE)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     locale: Mapped[str] = mapped_column(String(16), nullable=False, default="en")
     plan: Mapped[str] = mapped_column(String(32), nullable=False, default="free")
 
-    github_accounts: Mapped[list["GitHubAccount"]] = relationship(
+    github_accounts: Mapped[list[GitHubAccount]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
-    sessions: Mapped[list["Session"]] = relationship(
+    sessions: Mapped[list[Session]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
-    repositories: Mapped[list["Repository"]] = relationship(back_populates="owner")
+    repositories: Mapped[list[Repository]] = relationship(back_populates="owner")
 
-    __table_args__ = (
-        Index("ix_users_email_lower", text("lower(email)"), unique=True),
-    )
+    __table_args__ = (Index("ix_users_email_lower", text("lower(email)"), unique=True),)
 
 
 class GitHubAccount(Base, SoftDeleteMixin):
@@ -93,14 +88,16 @@ class GitHubAccount(Base, SoftDeleteMixin):
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     github_type: Mapped[str] = mapped_column(String(32), nullable=False, default="User")
     plan: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    organizations_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    organizations_json: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     followers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     following: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     public_repos: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_github_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_github_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     user: Mapped[User] = relationship(back_populates="github_accounts")
-    repositories: Mapped[list["Repository"]] = relationship(back_populates="github_account")
+    repositories: Mapped[list[Repository]] = relationship(back_populates="github_account")
 
     __table_args__ = (
         UniqueConstraint("user_id", "github_id", name="uq_github_accounts_user_github"),
@@ -125,7 +122,10 @@ class Session(Base, SoftDeleteMixin):
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()"), onupdate=text("now()")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -138,9 +138,7 @@ class Session(Base, SoftDeleteMixin):
 
     user: Mapped[User] = relationship(back_populates="sessions")
 
-    __table_args__ = (
-        Index("ix_sessions_user_status", "user_id", "status"),
-    )
+    __table_args__ = (Index("ix_sessions_user_status", "user_id", "status"),)
 
 
 class OAuthState(Base):
@@ -156,7 +154,9 @@ class OAuthState(Base):
     state_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
     session_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
-    provider: Mapped[AuthProvider] = mapped_column(String(24), nullable=False, default=AuthProvider.GITHUB)
+    provider: Mapped[AuthProvider] = mapped_column(
+        String(24), nullable=False, default=AuthProvider.GITHUB
+    )
     flow_stage: Mapped[OAuthFlowStage] = mapped_column(
         String(24), nullable=False, default=OAuthFlowStage.INITIATED
     )
@@ -175,9 +175,7 @@ class OAuthState(Base):
     )
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (
-        Index("ix_oauth_states_session_created", "session_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_oauth_states_session_created", "session_id", "created_at"),)
 
 
 class PKCEChallenge(Base):
@@ -224,9 +222,7 @@ class RefreshToken(Base, SoftDeleteMixin):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    __table_args__ = (
-        Index("ix_refresh_tokens_user_created", "user_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_refresh_tokens_user_created", "user_id", "created_at"),)
 
 
 class APIKey(Base, SoftDeleteMixin):
@@ -253,13 +249,18 @@ class UserPreferences(Base):
     )
     theme: Mapped[str] = mapped_column(String(16), nullable=False, default="system")
     email_notifications: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    default_repo_visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private")
+    default_repo_visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="private"
+    )
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()"), onupdate=text("now()")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
 
 
@@ -280,7 +281,9 @@ class AuditLog(Base):
     resource_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     resource_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     action: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    metadata_: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"), index=True
     )

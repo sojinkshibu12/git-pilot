@@ -3,6 +3,7 @@
 All configuration is loaded from environment variables (optionally via .env) and
 validated by Pydantic Settings. Secrets are never logged or exposed to clients.
 """
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -109,7 +110,7 @@ class Settings(BaseSettings):
         return " ".join(dict.fromkeys(v.split()))
 
     @model_validator(mode="after")
-    def _validate(self) -> "Settings":
+    def _validate(self) -> Settings:
         if self.APP_ENV != Environment.TESTING and not self.GITHUB_CLIENT_ID:
             raise ValueError("GITHUB_CLIENT_ID must be configured for non-testing environments")
         return self

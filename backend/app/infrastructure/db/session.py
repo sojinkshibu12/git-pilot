@@ -7,10 +7,13 @@ startup and exposed on `app.state.db`. Requests obtain a session via the
 - Connection pooling tuned for many concurrent requests.
 - Atomic session-per-request lifecycle (rollback on error).
 """
+
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from typing import Any
 
 from fastapi import Request
 from sqlalchemy import event
@@ -37,7 +40,7 @@ class Database:
         self.engine: AsyncEngine
         self.session_factory: async_sessionmaker[AsyncSession]
 
-        engine_kwargs: dict = {
+        engine_kwargs: dict[str, Any] = {
             "echo": settings.DB_ECHO,
             "pool_size": settings.DB_POOL_SIZE,
             "max_overflow": settings.DB_MAX_OVERFLOW,
@@ -59,6 +62,7 @@ class Database:
         self.engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 
         if settings.DATABASE_URL.startswith("sqlite"):
+
             @event.listens_for(self.engine.sync_engine, "connect")
             def _sqlite_compat(dbapi_connection: object, connection_record: object) -> None:  # noqa: ARG001
                 cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
@@ -66,12 +70,10 @@ class Database:
                 cursor.close()
                 # SQLite has no builtin `now()`; models use `now()` server defaults
                 # (Postgres) — register a compatible function for tests.
-                try:
+                with contextlib.suppress(Exception):
                     dbapi_connection.create_function(  # type: ignore[attr-defined]
                         "now", 0, lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
                     )
-                except Exception:  # noqa: BLE001 - non-sqlite3 drivers may not support it
-                    pass
 
         self.session_factory = async_sessionmaker(
             self.engine,
@@ -90,7 +92,7 @@ class Database:
         await self.engine.dispose()
 
 
-async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession]:
     """FastAPI dependency yielding a request-scoped session from app.state.db."""
     db: Database | None = getattr(request.app.state, "db", None)
     if db is None:

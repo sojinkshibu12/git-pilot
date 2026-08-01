@@ -14,15 +14,16 @@ Features
 Designed so the underlying transport can swap between OAuth App and GitHub App
 authentication without callers changing.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import random
-import time
-from collections.abc import AsyncIterator, Mapping, Sequence
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, TypeVar
+from collections.abc import Mapping, Sequence
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, TypeVar, cast
 
 import httpx
 import orjson
@@ -49,9 +50,9 @@ from app.infrastructure.github.models import (
     GHPackage,
     GHPaged,
     GHPullRequest,
+    GHRateLimit,
     GHRelease,
     GHRepository,
-    GHRateLimit,
     GHTeam,
     GHUser,
     GHWorkflow,
@@ -64,7 +65,12 @@ logger = get_logger("github")
 T = TypeVar("T", bound=GHBase)
 
 _RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
-_TRANSPORT_RETRIES = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.RemoteProtocolError)
+_TRANSPORT_RETRIES = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.RemoteProtocolError,
+)
 _MAX_PAGE_SIZE = 100
 _DEFAULT_PER_PAGE = 30
 
@@ -98,7 +104,7 @@ class GitHubAPIClient:
         token: str,
         *,
         params: dict[str, Any] | None = None,
-        json_body: dict | list | None = None,
+        json_body: dict[str, Any] | list[Any] | None = None,
         etag: str | None = None,
         retries: int | None = None,
     ) -> httpx.Response:
@@ -115,11 +121,17 @@ class GitHubAPIClient:
             attempt += 1
             try:
                 resp = await self._client.request(
-                    method, url, headers=headers, params=params, content=orjson.dumps(json_body) if json_body is not None else None
+                    method,
+                    url,
+                    headers=headers,
+                    params=params,
+                    content=orjson.dumps(json_body) if json_body is not None else None,
                 )
             except _TRANSPORT_RETRIES as exc:
                 if attempt >= max_attempts:
-                    raise GitHubUnavailableError(f"Transport error talking to GitHub: {exc}") from exc
+                    raise GitHubUnavailableError(
+                        f"Transport error talking to GitHub: {exc}"
+                    ) from exc
                 await self._backoff(attempt)
                 continue
 
@@ -129,7 +141,9 @@ class GitHubAPIClient:
             if resp.status_code == 304:
                 try:
                     cached = await self._redis.get_json(self._etag_key(url, token, params))
-                    header_record = await self._redis.get_json(self._etag_header_key(url, token, params))
+                    header_record = await self._redis.get_json(
+                        self._etag_header_key(url, token, params)
+                    )
                 except Exception:  # noqa: BLE001 - Redis outage → fall through to upstream 304
                     cached = None
                     header_record = None
@@ -148,7 +162,9 @@ class GitHubAPIClient:
                     retry_after = self._parse_retry_after(resp)
                     if attempt >= max_attempts:
                         raise GitHubRateLimitError(
-                            "GitHub rate limit exceeded", reset_at=reset_at, status_code=resp.status_code
+                            "GitHub rate limit exceeded",
+                            reset_at=reset_at,
+                            status_code=resp.status_code,
                         )
                     await asyncio.sleep(min(retry_after, self._settings.GH_MAX_RETRY_WAIT_SECONDS))
                     continue
@@ -213,10 +229,10 @@ class GitHubAPIClient:
         raw = resp.headers.get("Retry-After")
         if raw and raw.isdigit():
             return float(raw)
-        return float(1.0)
+        return 1.0
 
     @staticmethod
-    def _safe_json(resp: httpx.Response) -> dict:
+    def _safe_json(resp: httpx.Response) -> dict[str, Any]:
         """Parse a response body as a dict, tolerating non-JSON error bodies."""
         try:
             data = resp.json()
@@ -234,12 +250,10 @@ class GitHubAPIClient:
         reset = headers.get("X-RateLimit-Reset")
         if not remaining or not remaining.isdigit():
             return
-        try:
+        with contextlib.suppress(Exception):
             await self._redis.set_json(
                 "gh:ratelimit:core", {"remaining": int(remaining), "reset": reset}, ttl=3600
             )
-        except Exception:  # noqa: BLE001 - observability only; never fail the request
-            pass
 
     async def get_rate_limit(self, token: str) -> GHRateLimit:
         resp = await self.request("GET", "/rate_limit", token)
@@ -248,12 +262,12 @@ class GitHubAPIClient:
     # ------------------------------------------------------------------ #
     # ETag helpers
     # ------------------------------------------------------------------ #
-    def _etag_key(self, url: str, token: str, params: dict | None) -> str:
+    def _etag_key(self, url: str, token: str, params: dict[str, Any] | None) -> str:
         digest = hashlib.sha256(f"{url}:{params or {}}".encode()).hexdigest()
         token_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
         return f"gh:cache:{token_hash}:{digest}"
 
-    def _etag_header_key(self, url: str, token: str, params: dict | None) -> str:
+    def _etag_header_key(self, url: str, token: str, params: dict[str, Any] | None) -> str:
         return f"{self._etag_key(url, token, params)}:hdr"
 
     async def _fetch_with_etag(
@@ -302,7 +316,7 @@ class GitHubAPIClient:
             section = part.split(";")
             if len(section) < 2:
                 continue
-            if any("rel=\"next\"" in s or "rel='next'" in s for s in section[1:]):
+            if any('rel="next"' in s or "rel='next'" in s for s in section[1:]):
                 url = section[0].strip().strip("<>")
                 return url
         return None
@@ -314,7 +328,7 @@ class GitHubAPIClient:
             section = part.split(";")
             if len(section) < 2:
                 continue
-            if any("rel=\"last\"" in s or "rel='last'" in s for s in section[1:]):
+            if any('rel="last"' in s or "rel='last'" in s for s in section[1:]):
                 url = section[0].strip().strip("<>")
                 from urllib.parse import parse_qs, urlparse
 
@@ -326,15 +340,17 @@ class GitHubAPIClient:
     # ------------------------------------------------------------------ #
     # GraphQL
     # ------------------------------------------------------------------ #
-    async def graphql(self, token: str, query: str, variables: dict | None = None) -> dict:
+    async def graphql(
+        self, token: str, query: str, variables: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"query": query}
         if variables:
             body["variables"] = variables
         resp = await self.request("POST", "/graphql", token, json_body=body)
-        payload = resp.json()
+        payload: dict[str, Any] = resp.json()
         if "errors" in payload:
             raise GitHubClientError("GraphQL error", body={"errors": payload["errors"]})
-        return payload.get("data", {})
+        return cast(dict[str, Any], payload.get("data", {}))
 
     # ------------------------------------------------------------------ #
     # Typed REST helpers
@@ -356,7 +372,9 @@ class GitHubAPIClient:
         return primary[0].email if primary else None
 
     async def list_organizations(self, token: str) -> list[GHOrganization]:
-        return await self.paginate("/user/orgs", token, model=GHOrganization, params={"per_page": 100})
+        return await self.paginate(
+            "/user/orgs", token, model=GHOrganization, params={"per_page": 100}
+        )
 
     async def list_repositories(
         self, token: str, *, visibility: str | None = None, affiliation: str | None = None
@@ -400,7 +418,9 @@ class GitHubAPIClient:
                 total_count = last_page * per_page
         return GHPaged(items=items, next_page=nxt, total_count=total_count)
 
-    async def get_commit_count_for_user(self, token: str, owner: str, repo: str, author: str) -> int:
+    async def get_commit_count_for_user(
+        self, token: str, owner: str, repo: str, author: str
+    ) -> int:
         """Count commits authored by a user in a repository.
 
         Uses GitHub's classic trick: request per_page=1 and read the page number
@@ -409,7 +429,7 @@ class GitHubAPIClient:
         """
         cache_key = f"gh:commitcount:{owner}/{repo}:{author}"
         try:
-            cached = await self._redis.get(cache_key)
+            cached = await self._redis.get_json(cache_key)
         except Exception:  # noqa: BLE001
             cached = None
         if cached is not None:
@@ -423,7 +443,9 @@ class GitHubAPIClient:
         last = self._extract_last_page(resp.headers.get("Link", ""))
         count = last if last is not None else len(resp.json())
         try:
-            await self._redis.set_json(cache_key, count, ttl=self._settings.GH_CACHE_TTL_SECONDS * 15)
+            await self._redis.set_json(
+                cache_key, count, ttl=self._settings.GH_CACHE_TTL_SECONDS * 15
+            )
         except Exception:  # noqa: BLE001
             logger.warning("gh_commit_count_cache_write_failed", owner=owner, repo=repo)
         return count
@@ -445,7 +467,7 @@ class GitHubAPIClient:
           }
         }
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         to = now.isoformat()
         _from = (now - timedelta(days=365)).isoformat()
         cache_key = f"gh:contrib:{login}:{now.strftime('%Y')}"
@@ -454,7 +476,7 @@ class GitHubAPIClient:
         except Exception:  # noqa: BLE001
             cached = None
         if cached is not None:
-            return cached
+            return cast(dict[str, int], cached)
         data = await self.graphql(token, query, {"login": login, "from": _from, "to": to})
         coll = ((data or {}).get("user") or {}).get("contributionsCollection") or {}
         calendar = coll.get("contributionCalendar") or {}
@@ -466,7 +488,9 @@ class GitHubAPIClient:
             "total": int(calendar.get("totalContributions") or 0),
         }
         try:
-            await self._redis.set_json(cache_key, result, ttl=self._settings.GH_CACHE_TTL_SECONDS * 15)
+            await self._redis.set_json(
+                cache_key, result, ttl=self._settings.GH_CACHE_TTL_SECONDS * 15
+            )
         except Exception:  # noqa: BLE001
             logger.warning("gh_contrib_cache_write_failed", login=login)
         return result
@@ -507,18 +531,18 @@ class GitHubAPIClient:
         GitHub profile heatmap) so the grid matches GitHub day-for-day. Results
         are cached in Redis (per login + date range).
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if to_date > now.date():
             to_date = now.date()
-        start_dt = datetime(from_date.year, from_date.month, from_date.day, tzinfo=timezone.utc)
-        end_dt = datetime(to_date.year, to_date.month, to_date.day, 23, 59, 59, tzinfo=timezone.utc)
+        start_dt = datetime(from_date.year, from_date.month, from_date.day, tzinfo=UTC)
+        end_dt = datetime(to_date.year, to_date.month, to_date.day, 23, 59, 59, tzinfo=UTC)
         cache_key = f"gh:calendar:{login}:{from_date.isoformat()}:{to_date.isoformat()}"
         try:
             cached = await self._redis.get_json(cache_key)
         except Exception:  # noqa: BLE001 - Redis outage → live fetch
             cached = None
         if cached is not None:
-            return cached
+            return cast(dict[str, Any], cached)
 
         data = await self.graphql(
             token,
@@ -549,7 +573,7 @@ class GitHubAPIClient:
                 cache_key, result, ttl=self._settings.GH_CACHE_TTL_SECONDS * 60
             )
         except Exception:  # noqa: BLE001
-            logger.warning("gh_calendar_cache_write_failed", login=login, year=year)
+            logger.warning("gh_calendar_cache_write_failed", login=login, year=to_date.year)
         return result
 
     async def _search_all(
@@ -705,19 +729,27 @@ class GitHubAPIClient:
         resp = await self._fetch_with_etag("GET", f"/repos/{owner}/{repo}/branches/{branch}", token)
         return GHBranch.model_validate(resp.json())
 
-    async def create_branch(self, token: str, owner: str, repo: str, *, name: str, from_sha: str) -> None:
+    async def create_branch(
+        self, token: str, owner: str, repo: str, *, name: str, from_sha: str
+    ) -> None:
         body = {"ref": f"refs/heads/{name}", "sha": from_sha}
         await self.request("POST", f"/repos/{owner}/{repo}/git/refs", token, json_body=body)
 
-    async def list_commits(self, token: str, owner: str, repo: str, *, sha: str | None = None) -> list[GHCommit]:
+    async def list_commits(
+        self, token: str, owner: str, repo: str, *, sha: str | None = None
+    ) -> list[GHCommit]:
         params = {"sha": sha} if sha else None
-        return await self.paginate(f"/repos/{owner}/{repo}/commits", token, model=GHCommit, params=params)
+        return await self.paginate(
+            f"/repos/{owner}/{repo}/commits", token, model=GHCommit, params=params
+        )
 
     async def get_commit(self, token: str, owner: str, repo: str, ref: str) -> GHCommit:
         resp = await self._fetch_with_etag("GET", f"/repos/{owner}/{repo}/commits/{ref}", token)
         return GHCommit.model_validate(resp.json())
 
-    async def create_commit(self, token: str, owner: str, repo: str, *, message: str, tree: str, parents: list[str]) -> GHCommit:
+    async def create_commit(
+        self, token: str, owner: str, repo: str, *, message: str, tree: str, parents: list[str]
+    ) -> GHCommit:
         resp = await self.request(
             "POST",
             f"/repos/{owner}/{repo}/git/commits",
@@ -727,7 +759,14 @@ class GitHubAPIClient:
         return GHCommit.model_validate(resp.json())
 
     async def merge_branch(
-        self, token: str, owner: str, repo: str, *, base: str, head: str, commit_message: str | None = None
+        self,
+        token: str,
+        owner: str,
+        repo: str,
+        *,
+        base: str,
+        head: str,
+        commit_message: str | None = None,
     ) -> GHCommit:
         body: dict[str, Any] = {"base": base, "head": head}
         if commit_message:
@@ -740,27 +779,49 @@ class GitHubAPIClient:
         self, token: str, owner: str, repo: str, *, state: str = "open"
     ) -> list[GHPullRequest]:
         return await self.paginate(
-            f"/repos/{owner}/{repo}/pulls", token, model=GHPullRequest, params={"state": state, "per_page": 100}
+            f"/repos/{owner}/{repo}/pulls",
+            token,
+            model=GHPullRequest,
+            params={"state": state, "per_page": 100},
         )
 
-    async def get_pull_request(self, token: str, owner: str, repo: str, number: int) -> GHPullRequest:
+    async def get_pull_request(
+        self, token: str, owner: str, repo: str, number: int
+    ) -> GHPullRequest:
         resp = await self._fetch_with_etag("GET", f"/repos/{owner}/{repo}/pulls/{number}", token)
         return GHPullRequest.model_validate(resp.json())
 
-    async def create_pull_request(self, token: str, owner: str, repo: str, *, title: str, head: str, base: str, body: str | None = None) -> GHPullRequest:
+    async def create_pull_request(
+        self,
+        token: str,
+        owner: str,
+        repo: str,
+        *,
+        title: str,
+        head: str,
+        base: str,
+        body: str | None = None,
+    ) -> GHPullRequest:
         payload: dict[str, Any] = {"title": title, "head": head, "base": base}
         if body:
             payload["body"] = body
         resp = await self.request("POST", f"/repos/{owner}/{repo}/pulls", token, json_body=payload)
         return GHPullRequest.model_validate(resp.json())
 
-    async def merge_pull_request(self, token: str, owner: str, repo: str, number: int, *, merge_method: str = "merge") -> GHPullRequest:
+    async def merge_pull_request(
+        self, token: str, owner: str, repo: str, number: int, *, merge_method: str = "merge"
+    ) -> GHPullRequest:
         resp = await self.request(
-            "PUT", f"/repos/{owner}/{repo}/pulls/{number}/merge", token, json_body={"merge_method": merge_method}
+            "PUT",
+            f"/repos/{owner}/{repo}/pulls/{number}/merge",
+            token,
+            json_body={"merge_method": merge_method},
         )
         return GHPullRequest.model_validate(resp.json())
 
-    async def request_reviewers(self, token: str, owner: str, repo: str, number: int, *, reviewers: list[str]) -> None:
+    async def request_reviewers(
+        self, token: str, owner: str, repo: str, number: int, *, reviewers: list[str]
+    ) -> None:
         await self.request(
             "POST",
             f"/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
@@ -770,42 +831,58 @@ class GitHubAPIClient:
 
     async def submit_review(
         self, token: str, owner: str, repo: str, number: int, *, body: str, event: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         resp = await self.request(
             "POST",
             f"/repos/{owner}/{repo}/pulls/{number}/reviews",
             token,
             json_body={"body": body, "event": event},
         )
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     # --- Issues ---
-    async def list_issues(self, token: str, owner: str, repo: str, *, state: str = "open") -> list[GHIssue]:
+    async def list_issues(
+        self, token: str, owner: str, repo: str, *, state: str = "open"
+    ) -> list[GHIssue]:
         return await self.paginate(
-            f"/repos/{owner}/{repo}/issues", token, model=GHIssue, params={"state": state, "per_page": 100}
+            f"/repos/{owner}/{repo}/issues",
+            token,
+            model=GHIssue,
+            params={"state": state, "per_page": 100},
         )
 
     async def get_issue(self, token: str, owner: str, repo: str, number: int) -> GHIssue:
         resp = await self._fetch_with_etag("GET", f"/repos/{owner}/{repo}/issues/{number}", token)
         return GHIssue.model_validate(resp.json())
 
-    async def create_issue(self, token: str, owner: str, repo: str, *, title: str, body: str | None = None) -> GHIssue:
+    async def create_issue(
+        self, token: str, owner: str, repo: str, *, title: str, body: str | None = None
+    ) -> GHIssue:
         payload: dict[str, Any] = {"title": title}
         if body:
             payload["body"] = body
         resp = await self.request("POST", f"/repos/{owner}/{repo}/issues", token, json_body=payload)
         return GHIssue.model_validate(resp.json())
 
-    async def update_issue(self, token: str, owner: str, repo: str, number: int, **fields: Any) -> GHIssue:
-        resp = await self.request("PATCH", f"/repos/{owner}/{repo}/issues/{number}", token, json_body=fields)
+    async def update_issue(
+        self, token: str, owner: str, repo: str, number: int, **fields: Any
+    ) -> GHIssue:
+        resp = await self.request(
+            "PATCH", f"/repos/{owner}/{repo}/issues/{number}", token, json_body=fields
+        )
         return GHIssue.model_validate(resp.json())
 
     async def close_issue(self, token: str, owner: str, repo: str, number: int) -> GHIssue:
         return await self.update_issue(token, owner, repo, number, state="closed")
 
-    async def comment_on_issue(self, token: str, owner: str, repo: str, number: int, *, body: str) -> GHComment:
+    async def comment_on_issue(
+        self, token: str, owner: str, repo: str, number: int, *, body: str
+    ) -> GHComment:
         resp = await self.request(
-            "POST", f"/repos/{owner}/{repo}/issues/{number}/comments", token, json_body={"body": body}
+            "POST",
+            f"/repos/{owner}/{repo}/issues/{number}/comments",
+            token,
+            json_body={"body": body},
         )
         return GHComment.model_validate(resp.json())
 
@@ -813,16 +890,30 @@ class GitHubAPIClient:
     async def list_releases(self, token: str, owner: str, repo: str) -> list[GHRelease]:
         return await self.paginate(f"/repos/{owner}/{repo}/releases", token, model=GHRelease)
 
-    async def create_release(self, token: str, owner: str, repo: str, *, tag_name: str, **kwargs: Any) -> GHRelease:
+    async def create_release(
+        self, token: str, owner: str, repo: str, *, tag_name: str, **kwargs: Any
+    ) -> GHRelease:
         resp = await self.request(
-            "POST", f"/repos/{owner}/{repo}/releases", token, json_body={"tag_name": tag_name, **kwargs}
+            "POST",
+            f"/repos/{owner}/{repo}/releases",
+            token,
+            json_body={"tag_name": tag_name, **kwargs},
         )
         return GHRelease.model_validate(resp.json())
 
     async def list_labels(self, token: str, owner: str, repo: str) -> list[GHLabels]:
         return await self.paginate(f"/repos/{owner}/{repo}/labels", token, model=GHLabels)
 
-    async def create_label(self, token: str, owner: str, repo: str, *, name: str, color: str, description: str | None = None) -> GHLabels:
+    async def create_label(
+        self,
+        token: str,
+        owner: str,
+        repo: str,
+        *,
+        name: str,
+        color: str,
+        description: str | None = None,
+    ) -> GHLabels:
         body: dict[str, Any] = {"name": name, "color": color}
         if description:
             body["description"] = description
@@ -832,11 +923,15 @@ class GitHubAPIClient:
     async def list_milestones(self, token: str, owner: str, repo: str) -> list[GHMilestone]:
         return await self.paginate(f"/repos/{owner}/{repo}/milestones", token, model=GHMilestone)
 
-    async def create_milestone(self, token: str, owner: str, repo: str, *, title: str, due_on: str | None = None) -> GHMilestone:
+    async def create_milestone(
+        self, token: str, owner: str, repo: str, *, title: str, due_on: str | None = None
+    ) -> GHMilestone:
         body: dict[str, Any] = {"title": title}
         if due_on:
             body["due_on"] = due_on
-        resp = await self.request("POST", f"/repos/{owner}/{repo}/milestones", token, json_body=body)
+        resp = await self.request(
+            "POST", f"/repos/{owner}/{repo}/milestones", token, json_body=body
+        )
         return GHMilestone.model_validate(resp.json())
 
     # --- Actions / workflows ---
@@ -845,13 +940,23 @@ class GitHubAPIClient:
         return [GHWorkflow.model_validate(item) for item in resp.json().get("workflows", [])]
 
     async def dispatch_workflow(
-        self, token: str, owner: str, repo: str, *, workflow_id: str, ref: str, inputs: dict | None = None
+        self,
+        token: str,
+        owner: str,
+        repo: str,
+        *,
+        workflow_id: str,
+        ref: str,
+        inputs: dict[str, Any] | None = None,
     ) -> None:
         body: dict[str, Any] = {"ref": ref}
         if inputs:
             body["inputs"] = inputs
         await self.request(
-            "POST", f"/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", token, json_body=body
+            "POST",
+            f"/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+            token,
+            json_body=body,
         )
 
     async def list_workflow_runs(self, token: str, owner: str, repo: str) -> list[GHWorkflowRun]:
@@ -909,5 +1014,4 @@ __all__ = [
     "GitHubRateLimitError",
     "GitHubUnavailableError",
     "normalize_github_error",
-    "to_domain_exception",
 ]

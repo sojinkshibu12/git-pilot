@@ -39,6 +39,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+norecursedirs = ["tests/e2e"]
 addopts = "-q --cov=app --cov-report=term-missing --cov-fail-under=90"
 
 [tool.ruff]
@@ -49,6 +50,12 @@ exclude = ["alembic"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "SIM", "ASYNC"]
 ignore = ["S101", "S311"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106"]
 
 [tool.mypy]
 python_version = "3.13"

@@ -3,6 +3,7 @@
 A single `RedisClient` container owns the `redis.asyncio` pool. Created at
 startup, exposed on `app.state.redis`.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -44,7 +45,7 @@ class RedisClient:
         return orjson.dumps(value).decode()
 
     @staticmethod
-    def _loads(raw: str) -> Any:
+    def _loads(raw: str | bytes) -> Any:
         return orjson.loads(raw)
 
     # --- cache primitives ---

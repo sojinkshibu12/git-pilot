@@ -9,12 +9,13 @@ The callback sets the session cookie directly. Errors are surfaced with stable
 codes so the frontend can render dedicated screens (expired, cancelled,
 rate-limited, etc.).
 """
+
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
 from app.api.cookies import clear_session_cookie, set_session_cookie
@@ -25,6 +26,7 @@ from app.core.exceptions import (
     OAuthCancelledError,
     OAuthStateExpiredError,
     OAuthStateMismatchError,
+    PKCEValidationError,
 )
 from app.schemas import GenericSuccess, OAuthAuthorizeResponse
 
@@ -107,7 +109,7 @@ async def oauth_callback(
             device_label="GitHub Sign-in",
         )
         await services.db.commit()
-        response = RedirectResponse(url=f"/auth/callback?provider=github&status=success")
+        response = RedirectResponse(url="/auth/callback?provider=github&status=success")
         response.status_code = 303
         set_session_cookie(response, session_token, settings)
         return response
@@ -124,12 +126,11 @@ async def oauth_callback(
     except OAuthCancelledError:
         await services.db.rollback()
         return _redirect_with_error(response, status="cancelled")
-    except OAuthStateExpiredError:
-        await services.db.rollback()
-        return _redirect_with_error(response, status="state_expired")
-    except OAuthStateMismatchError:
-        await services.db.rollback()
-        return _redirect_with_error(response, status="state_mismatch")
+    except (OAuthStateExpiredError, OAuthStateMismatchError, PKCEValidationError):
+        # Security events must leave an audit trail even though the request
+        # fails: persist the pending audit record before re-raising.
+        await services.db.commit()
+        raise
     except Exception as exc:  # noqa: BLE001
         await services.db.rollback()
         clear_session_cookie(response, settings)
@@ -158,7 +159,7 @@ def _redirect_with_error(response: RedirectResponse, status: str, **extra: str) 
     summary="Complete GitHub→Password account linking",
 )
 async def complete_link(
-    payload: dict,
+    payload: dict[str, Any],
     request: Request,
     services: Annotated[Services, Depends(get_services)],
 ) -> GenericSuccess:
@@ -168,11 +169,14 @@ async def complete_link(
         from app.core.exceptions import ValidationFailure
 
         raise ValidationFailure("link_token and password are required.")
-    from app.domain.models.identity import User
     from sqlalchemy import select
 
+    from app.domain.models.identity import User
+
     user = await services.db.scalar(
-        select(User).where(User.email == str(payload.get("email", "")).lower(), User.deleted_at.is_(None))
+        select(User).where(
+            User.email == str(payload.get("email", "")).lower(), User.deleted_at.is_(None)
+        )
     )
     if user is None:
         from app.core.exceptions import NotFoundError

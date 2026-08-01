@@ -1,4 +1,5 @@
 """User service — profile, preferences, connected accounts, security overview."""
+
 from __future__ import annotations
 
 import uuid
@@ -12,7 +13,7 @@ from app.application.services.session_service import SessionService
 from app.application.services.token_service import TokenService
 from app.core.exceptions import NotFoundError
 from app.domain.models.enums import AuthProvider
-from app.domain.models.identity import GitHubAccount, Session, User, UserPreferences
+from app.domain.models.identity import GitHubAccount, User, UserPreferences
 from app.infrastructure.github.client import GitHubAPIClient
 from app.infrastructure.github.exceptions import GitHubClientError
 
@@ -77,22 +78,39 @@ class UserService:
 
         github = accounts[0] if accounts else None
         result: list[dict[str, Any]] = []
-        for provider in (AuthProvider.GITHUB, AuthProvider.GOOGLE, AuthProvider.MICROSOFT, AuthProvider.GITLAB):
+        for provider in (
+            AuthProvider.GITHUB,
+            AuthProvider.GOOGLE,
+            AuthProvider.MICROSOFT,
+            AuthProvider.GITLAB,
+        ):
             is_github = provider == AuthProvider.GITHUB
             connected = is_github and github is not None
-            result.append(
-                {
+            if connected and github is not None:
+                account: dict[str, Any] = {
                     "provider": provider,
-                    "connected": connected,
-                    "primary": connected,
-                    "github_id": github.github_id if connected else None,
-                    "login": github.login if connected else None,
-                    "avatar_url": github.avatar_url if connected else None,
-                    "email": github.email if connected else None,
-                    "email_verified": github.email_verified if connected else False,
-                    "display_name": github.display_name if connected else None,
+                    "connected": True,
+                    "primary": True,
+                    "github_id": github.github_id,
+                    "login": github.login,
+                    "avatar_url": github.avatar_url,
+                    "email": github.email,
+                    "email_verified": github.email_verified,
+                    "display_name": github.display_name,
                 }
-            )
+            else:
+                account = {
+                    "provider": provider,
+                    "connected": False,
+                    "primary": False,
+                    "github_id": None,
+                    "login": None,
+                    "avatar_url": None,
+                    "email": None,
+                    "email_verified": False,
+                    "display_name": None,
+                }
+            result.append(account)
         return result
 
     async def security_overview(self, user_id: uuid.UUID) -> dict[str, Any]:

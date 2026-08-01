@@ -2,6 +2,7 @@
 
 These define the wire contract of the API and never leak tokens or secrets.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -86,7 +87,7 @@ class OAuthUserResponse(BaseModel):
     email_verified: bool = False
     display_name: str | None = None
     avatar_url: str | None = None
-    github: "GitHubAccountSchema | None" = None
+    github: GitHubAccountSchema | None = None
 
 
 class GitHubAccountSchema(BaseModel):

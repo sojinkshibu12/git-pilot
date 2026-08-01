@@ -4,9 +4,11 @@ These are transport models that mirror GitHub's REST/GraphQL payloads. They are
 separate from our DB entities (domain models) — the boundary keeps upstream API
 churn isolated.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -44,7 +46,7 @@ class GHEmail(GHBase):
 
 class GHAccessToken(GHBase):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # noqa: S105
     scope: str = ""
     refresh_token: str | None = None
     expires_in: int | None = None
@@ -79,7 +81,7 @@ class GHRepository(GHBase):
     node_id: str | None = None
     name: str
     full_name: str
-    owner: GHUser | dict | None = None
+    owner: GHUser | dict[str, Any] | None = None
     private: bool = False
     html_url: str
     description: str | None = None
@@ -98,7 +100,7 @@ class GHRepository(GHBase):
     default_branch: str = "main"
     visibility: str = "private"
     topics: list[str] = Field(default_factory=list)
-    permissions: dict | None = None
+    permissions: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     pushed_at: datetime | None = None
@@ -113,23 +115,23 @@ class GHTeam(GHBase):
     permission: str | None = None
     members_url: str | None = None
     repositories_url: str | None = None
-    organization: GHOrganization | dict | None = None
+    organization: GHOrganization | dict[str, Any] | None = None
 
 
 class GHCommit(GHBase):
     sha: str
     node_id: str | None = None
-    commit: dict | None = None
+    commit: dict[str, Any] | None = None
     message: str | None = None
     url: str | None = None
-    author: dict | None = None
-    committer: dict | None = None
-    parents: list[dict] = Field(default_factory=list)
+    author: dict[str, Any] | None = None
+    committer: dict[str, Any] | None = None
+    parents: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class GHBranch(GHBase):
     name: str
-    commit: dict | None = None
+    commit: dict[str, Any] | None = None
     protected: bool = False
 
 
@@ -145,9 +147,9 @@ class GHPullRequest(GHBase):
     mergeable: bool | None = None
     merged: bool = False
     mergeable_state: str | None = None
-    head: dict | None = None
-    base: dict | None = None
-    user: GHUser | dict | None = None
+    head: dict[str, Any] | None = None
+    base: dict[str, Any] | None = None
+    user: GHUser | dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     merged_at: datetime | None = None
@@ -160,11 +162,11 @@ class GHIssue(GHBase):
     title: str
     body: str | None = None
     html_url: str
-    user: GHUser | dict | None = None
-    assignees: list | None = None
-    labels: list | None = None
+    user: GHUser | dict[str, Any] | None = None
+    assignees: list[Any] | None = None
+    labels: list[Any] | None = None
     comments: int = 0
-    pull_request: dict | None = None
+    pull_request: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
@@ -174,7 +176,7 @@ class GHComment(GHBase):
     id: int
     body: str
     html_url: str
-    user: GHUser | dict | None = None
+    user: GHUser | dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -229,8 +231,8 @@ class GHDiscussion(GHBase):
     number: int
     title: str
     body: str | None = None
-    author: dict | None = None
-    category: dict | None = None
+    author: dict[str, Any] | None = None
+    category: dict[str, Any] | None = None
     answer_html_url: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -257,7 +259,7 @@ class GHWorkflow(GHBase):
 
 
 class GHRateLimit(GHBase):
-    resources: dict = Field(default_factory=dict)
+    resources: dict[str, Any] = Field(default_factory=dict)
 
 
 class GHPaged(GHBase):

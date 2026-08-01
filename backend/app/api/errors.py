@@ -3,9 +3,8 @@
 Maps domain exceptions to HTTP responses with machine-readable codes. Never
 leaks stack traces, SQL, or token material.
 """
-from __future__ import annotations
 
-import logging
+from __future__ import annotations
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,21 +12,16 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.exceptions import (
-    AccountLinkingRequiredError,
-    AuthenticationError,
-    ConflictError,
     DomainError,
     GitHubRateLimitedError,
-    NotFoundError,
     RateLimitExceeded,
-    ValidationFailure,
 )
 from app.core.logging import get_logger
 
 logger = get_logger("http")
 
 
-def _ctx(request: Request) -> dict:
+def _ctx(request: Request) -> dict[str, object]:
     return {
         "request_id": getattr(request.state, "request_id", None),
         "correlation_id": getattr(request.state, "correlation_id", None),
@@ -51,25 +45,44 @@ def register_exception_handlers(app: FastAPI) -> None:
         if isinstance(exc, GitHubRateLimitedError):
             payload["retry_after_seconds"] = exc.details.get("reset_at")
         log = logger.bind(**_ctx(request))
-        if exc.status_code >= 500 or exc.code in {"oauth_state_mismatch", "pkce_validation_failed", "redirect_uri_mismatch"}:
+        if exc.status_code >= 500 or exc.code in {
+            "oauth_state_mismatch",
+            "pkce_validation_failed",
+            "redirect_uri_mismatch",
+        }:
             log.warning("domain_error", code=exc.code, status=exc.status_code, detail=exc.message)
         return JSONResponse(status_code=exc.status_code, content=payload)
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    async def validation_error_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
         fields: dict[str, list[str]] = {}
         for err in exc.errors():
-            loc = ".".join(str(x) for x in err.get("loc", []) if x not in {"body", "query", "path", "header"})
+            loc = ".".join(
+                str(x) for x in err.get("loc", []) if x not in {"body", "query", "path", "header"}
+            )
             fields.setdefault(loc, []).append(err.get("msg", "invalid value"))
         logger.warning("validation_error", **_ctx(request), errors=exc.errors()[:5])
         return JSONResponse(
             status_code=422,
-            content={"detail": "Validation failed.", "code": "validation_failed", "status": 422, "fields": fields},
+            content={
+                "detail": "Validation failed.",
+                "code": "validation_failed",
+                "status": 422,
+                "fields": fields,
+            },
         )
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        code_map = {401: "unauthorized", 403: "forbidden", 404: "not_found", 429: "rate_limit_exceeded", 500: "internal_error"}
+        code_map = {
+            401: "unauthorized",
+            403: "forbidden",
+            404: "not_found",
+            429: "rate_limit_exceeded",
+            500: "internal_error",
+        }
         return JSONResponse(
             status_code=exc.status_code,
             content={

@@ -1,9 +1,11 @@
 """Unit tests: security primitives (PKCE, state, vault, passwords, timing)."""
+
 from __future__ import annotations
 
 import re
 
 import pytest
+from cryptography.exceptions import InvalidTag
 
 from app.core.security import (
     PKCEPair,
@@ -77,7 +79,7 @@ class TestTokenVault:
         vault = self._vault()
         blob = vault.encrypt("secret")
         corrupted = blob[:-4] + ("AB==" if not blob.endswith("AB==") else "CD==")
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidTag):
             vault.decrypt(corrupted)
 
     def test_unique_ciphertexts(self) -> None:
@@ -91,7 +93,7 @@ class TestTokenVault:
         a = self._vault()
         b = TokenVault("c" * 64)
         blob = a.encrypt("secret")
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidTag):
             b.decrypt(blob)
 
     def test_rejects_short_key(self) -> None:

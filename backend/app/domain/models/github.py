@@ -3,11 +3,12 @@
 These mirror GitHub's upstream models so the platform can migrate between OAuth
 Apps and GitHub Apps without schema churn.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -50,9 +51,9 @@ class Organization(Base, SoftDeleteMixin):
     )
     members_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     repos_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
-    members: Mapped[list["OrganizationMember"]] = relationship(
+    members: Mapped[list[OrganizationMember]] = relationship(
         back_populates="organization", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -112,12 +113,12 @@ class Repository(Base, SoftDeleteMixin):
     stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     forks_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     open_issues_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    topics: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    topics: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     owner: Mapped[User | None] = relationship(back_populates="repositories")
     github_account: Mapped[GitHubAccount | None] = relationship(back_populates="repositories")
-    permissions: Mapped[list["RepositoryPermission"]] = relationship(
+    permissions: Mapped[list[RepositoryPermission]] = relationship(
         back_populates="repository", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -163,7 +164,9 @@ class WebhookInstallation(Base, SoftDeleteMixin):
     __tablename__ = "webhook_installations"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    github_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, unique=True, index=True)
+    github_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, unique=True, index=True
+    )
     repository_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("repositories.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -172,9 +175,11 @@ class WebhookInstallation(Base, SoftDeleteMixin):
     )
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
     secret_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
-    events: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    events: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    last_delivery_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_delivery_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_delivery_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
@@ -202,16 +207,21 @@ class GitHubCredential(Base, SoftDeleteMixin):
     refresh_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     scopes: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     github_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    encryption_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    encryption_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()"), onupdate=text("now()")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
 
     __table_args__ = (
@@ -222,5 +232,6 @@ class GitHubCredential(Base, SoftDeleteMixin):
             "github_account_id",
             unique=True,
             postgresql_where=text("is_active IS TRUE"),
+            sqlite_where=text("is_active IS TRUE"),
         ),
     )

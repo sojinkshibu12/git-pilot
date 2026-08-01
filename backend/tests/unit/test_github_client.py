@@ -1,7 +1,9 @@
 """Unit tests: GitHub API client (retries, pagination, rate limits, ETags)."""
+
 from __future__ import annotations
 
 import pytest
+import respx
 
 from app.core.config import Settings
 from app.infrastructure.github.client import GitHubAPIClient
@@ -52,8 +54,8 @@ async def test_request_retries_transient_errors(respx_mock, settings):
     client = GitHubAPIClient(settings, _FakeRedis())
     respx_mock.get("https://api.github.com/user").mock(
         side_effect=[
-            respx_mock.Response(502),
-            respx_mock.Response(200, json={"id": 1, "login": "octocat"}),
+            respx.MockResponse(502),
+            respx.MockResponse(200, json={"id": 1, "login": "octocat"}),
         ]
     )
     resp = await client.request("GET", "/user", "token")
@@ -66,7 +68,7 @@ async def test_request_retries_transient_errors(respx_mock, settings):
 async def test_rate_limit_raises_after_retries(respx_mock, settings):
     client = GitHubAPIClient(_settings(), _FakeRedis())
     respx_mock.get("https://api.github.com/user").mock(
-        side_effect=[respx_mock.Response(403, headers={"X-RateLimit-Remaining": "0"})] * 3
+        side_effect=[respx.MockResponse(403, headers={"X-RateLimit-Remaining": "0"})] * 3
     )
     with pytest.raises(GitHubRateLimitError):
         await client.request("GET", "/user", "token")
@@ -78,12 +80,25 @@ async def test_pagination_follows_next_link(respx_mock):
     client = GitHubAPIClient(_settings(), _FakeRedis())
     respx_mock.get("https://api.github.com/user/repos").mock(
         side_effect=[
-            respx_mock.Response(
+            respx.MockResponse(
                 200,
-                json=[{"id": 1, "full_name": "a/repo", "name": "repo", "html_url": "", "owner": {"id": 1, "login": "a"}}],
-                headers={"Link": '<https://api.github.com/user/repos?page=2>; rel="next", <https://api.github.com/user/repos?page=3>; rel="last"'},
+                json=[
+                    {
+                        "id": 1,
+                        "full_name": "a/repo",
+                        "name": "repo",
+                        "html_url": "",
+                        "owner": {"id": 1, "login": "a"},
+                    }
+                ],
+                headers={
+                    "Link": (
+                        '<https://api.github.com/user/repos?page=2>; rel="next", '
+                        '<https://api.github.com/user/repos?page=3>; rel="last"'
+                    )
+                },
             ),
-            respx_mock.Response(200, json=[]),
+            respx.MockResponse(200, json=[]),
         ]
     )
     from app.infrastructure.github.models import GHRepository
@@ -102,8 +117,8 @@ async def test_etag_returns_cached_304(respx_mock):
     # First call populates cache.
     respx_mock.get("https://api.github.com/user").mock(
         side_effect=[
-            respx_mock.Response(200, json={"id": 1, "login": "cached"}, headers={"ETag": '"abc"'}),
-            respx_mock.Response(304),
+            respx.MockResponse(200, json={"id": 1, "login": "cached"}, headers={"ETag": '"abc"'}),
+            respx.MockResponse(304),
         ]
     )
     first = await client._fetch_with_etag("GET", "/user", "token")
@@ -116,8 +131,10 @@ async def test_etag_returns_cached_304(respx_mock):
 
 @pytest.mark.asyncio
 async def test_transport_error_raises_after_retries(respx_mock):
+    import httpx
+
     client = GitHubAPIClient(_settings(), _FakeRedis())
-    respx_mock.get("https://api.github.com/user").mock(side_effect=ConnectionError("boom"))
+    respx_mock.get("https://api.github.com/user").mock(side_effect=httpx.ConnectError("boom"))
     with pytest.raises(GitHubUnavailableError):
         await client.request("GET", "/user", "token")
     await client.aclose()
@@ -127,7 +144,7 @@ async def test_transport_error_raises_after_retries(respx_mock):
 async def test_graphql_errors_raised(respx_mock):
     client = GitHubAPIClient(_settings(), _FakeRedis())
     respx_mock.post("https://api.github.com/graphql").mock(
-        respx_mock.Response(200, json={"errors": [{"message": "boom"}]})
+        respx.MockResponse(200, json={"errors": [{"message": "boom"}]})
     )
     from app.infrastructure.github.exceptions import GitHubClientError
 

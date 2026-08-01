@@ -4,6 +4,7 @@
 - CreatedAt / UpdatedAt / DeletedAt on every table (soft deletes)
 - Named constraint conventions so Alembic renders deterministic migrations
 """
+
 from __future__ import annotations
 
 import uuid

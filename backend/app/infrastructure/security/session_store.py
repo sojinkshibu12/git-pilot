@@ -8,12 +8,14 @@ Keys:
     gp:session:<sha256(token)>  → JSON payload (user id, expiry, csrf, flags)
     gp:session:user:<user_id>   → SET of session hashes for global logout
 """
+
 from __future__ import annotations
 
 import hashlib
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from app.infrastructure.redis.client import RedisClient
 
@@ -31,7 +33,7 @@ class SessionRecord:
     user_agent: str | None = None
     device_label: str | None = None
     is_current: bool = False
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 def _hash_token(token: str) -> str:
@@ -69,7 +71,7 @@ class SessionStore:
         record = await self.get(token)
         if record is None:
             return
-        now = int(datetime.now(timezone.utc).timestamp())
+        now = int(datetime.now(UTC).timestamp())
         record.last_used_at = now
         if absolute_expiry:
             record.absolute_expiry = absolute_expiry
@@ -82,13 +84,17 @@ class SessionStore:
             await self._redis.client.srem(self._user_key(record.user_id), _hash_token(token))
         await self._redis.delete(key)
 
-    async def revoke_all_for_user(self, user_id: uuid.UUID | str, except_token: str | None = None) -> int:
+    async def revoke_all_for_user(
+        self, user_id: uuid.UUID | str, except_token: str | None = None
+    ) -> int:
         """Log out every device for a user (except the current session if given)."""
         user_key = self._user_key(user_id)
         hashes = set(await self._redis.client.smembers(user_key))
         revoked = 0
         skip_hash = _hash_token(except_token) if except_token else None
         for h in hashes:
+            if isinstance(h, bytes):
+                h = h.decode()
             if h == skip_hash:
                 continue
             await self._redis.client.delete(f"{self._PREFIX}:{h}")

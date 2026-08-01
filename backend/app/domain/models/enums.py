@@ -2,16 +2,14 @@
 
 These are framework-free values consumed by both the ORM and the API schemas.
 """
+
 from __future__ import annotations
 
 import enum
 
 
-class StrEnum(str, enum.Enum):
+class StrEnum(enum.StrEnum):
     """str-enum that serializes to its value in JSON by default."""
-
-    def __str__(self) -> str:
-        return self.value
 
 
 class UserStatus(StrEnum):
@@ -55,8 +53,8 @@ class AuditEventType(StrEnum):
     SESSION_REVOKED = "session.revoked"
     SESSION_EXPIRED = "session.expired"
     SESSION_ROTATED = "session.rotated"
-    TOKEN_REFRESH = "token.refresh"
-    TOKEN_REVOKED = "token.revoked"
+    TOKEN_REFRESH = "token.refresh"  # noqa: S105
+    TOKEN_REVOKED = "token.revoked"  # noqa: S105
     OAUTH_INITIATED = "oauth.initiated"
     OAUTH_STATE_MISMATCH = "oauth.state_mismatch"
     OAUTH_STATE_EXPIRED = "oauth.state_expired"
@@ -66,7 +64,7 @@ class AuditEventType(StrEnum):
     OAUTH_CANCELLED = "oauth.cancelled"
     ACCOUNT_LINKED = "account.linked"
     ACCOUNT_UNLINKED = "account.unlinked"
-    PASSWORD_CHANGED = "password.changed"
+    PASSWORD_CHANGED = "password.changed"  # noqa: S105
     EMAIL_CHANGED = "email.changed"
     EMAIL_VERIFIED = "email.verified"
     MFA_ENABLED = "mfa.enabled"

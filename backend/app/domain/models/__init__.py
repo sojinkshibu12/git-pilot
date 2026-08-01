@@ -1,8 +1,8 @@
 from app.domain.models.base import Base
 from app.domain.models.contributions import Contribution
 from app.domain.models.enums import (
-    AuthProvider,
     AuditEventType,
+    AuthProvider,
     GitHubEntityType,
     OAuthFlowStage,
     OrganizationRole,

@@ -3,10 +3,11 @@
 Startup bootstraps infrastructure (DB, Redis, vault, GitHub client) and exposes
 them on `app.state` for the per-request dependency graph.
 """
+
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +23,7 @@ from app.api.middleware import (
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger, setup_logging
-from app.core.security import TokenVault, configure_vault
+from app.core.security import configure_vault
 from app.infrastructure.db.session import Database
 from app.infrastructure.github.client import GitHubAPIClient
 from app.infrastructure.redis.client import RedisClient
@@ -87,7 +88,7 @@ def make_app(settings: Settings | None = None) -> FastAPI:
     register_exception_handlers(app)
 
     @app.get("/", include_in_schema=False)
-    async def root() -> dict:
+    async def root() -> dict[str, str]:
         return {"service": settings.APP_NAME, "version": settings.APP_VERSION, "docs": "/docs"}
 
     return app

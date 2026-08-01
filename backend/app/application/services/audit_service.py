@@ -4,6 +4,7 @@ Every security-relevant event is persisted to `audit_logs` AND emitted through
 structured logging with correlation context. In production, wire the event
 stream to your SIEM via the log sink.
 """
+
 from __future__ import annotations
 
 import uuid
