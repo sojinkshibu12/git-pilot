@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     auth,
     contributions,
     health,
+    issues,
     oauth,
     repositories,
     sessions,
@@ -18,6 +19,7 @@ api_router.include_router(oauth.router)
 api_router.include_router(sessions.router)
 api_router.include_router(users.router)
 api_router.include_router(repositories.router)
+api_router.include_router(issues.router)
 api_router.include_router(contributions.router)
 api_router.include_router(api_keys.router)
 api_router.include_router(audit.router)

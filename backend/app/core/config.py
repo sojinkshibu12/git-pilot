@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
     GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oauth/github/callback"
-    GITHUB_SCOPE: str = "read:user user:email"
+    GITHUB_SCOPE: str = "read:user user:email repo"
     GITHUB_API_BASE_URL: str = "https://api.github.com"
     GITHUB_WEB_BASE_URL: str = "https://github.com"
     GITHUB_APP_TYPE: Literal["oauth_app", "github_app"] = "oauth_app"

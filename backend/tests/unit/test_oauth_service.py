@@ -35,7 +35,7 @@ def _settings() -> Settings:
         GITHUB_CLIENT_ID="cid",
         GITHUB_CLIENT_SECRET="csec",
         GITHUB_REDIRECT_URI="http://testserver/api/v1/auth/oauth/github/callback",
-        GITHUB_SCOPE="read:user user:email",
+        GITHUB_SCOPE="read:user user:email repo",
         OAUTH_STATE_TTL_SECONDS=600,
     )
 

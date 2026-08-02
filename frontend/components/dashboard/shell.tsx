@@ -3,12 +3,13 @@
 import { motion } from "framer-motion";
 import {
   LayoutDashboard,
-  KeyRound,
   Link2,
   LogOut,
   MonitorSmartphone,
   ShieldCheck,
   Github,
+  GitFork,
+  Inbox,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -22,6 +23,8 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard/repositories", label: "Repositories", icon: GitFork },
+  { href: "/dashboard/issues", label: "Assigned issues", icon: Inbox },
   { href: "/security", label: "Security", icon: ShieldCheck },
   { href: "/security/connected-accounts", label: "Connected accounts", icon: Link2 },
   { href: "/security/sessions", label: "Active sessions", icon: MonitorSmartphone },

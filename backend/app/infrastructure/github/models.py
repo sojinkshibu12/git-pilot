@@ -118,15 +118,29 @@ class GHTeam(GHBase):
     organization: GHOrganization | dict[str, Any] | None = None
 
 
+class GHCommitFile(GHBase):
+    filename: str
+    status: str
+    additions: int = 0
+    deletions: int = 0
+    changes: int = 0
+    raw_url: str | None = None
+    blob_url: str | None = None
+    previous_filename: str | None = None
+    patch: str | None = None
+
+
 class GHCommit(GHBase):
     sha: str
     node_id: str | None = None
     commit: dict[str, Any] | None = None
     message: str | None = None
     url: str | None = None
+    html_url: str | None = None
     author: dict[str, Any] | None = None
     committer: dict[str, Any] | None = None
     parents: list[dict[str, Any]] = Field(default_factory=list)
+    files: list[GHCommitFile] = Field(default_factory=list)
 
 
 class GHBranch(GHBase):
@@ -170,6 +184,7 @@ class GHIssue(GHBase):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
+    repository: dict[str, Any] | None = None
 
 
 class GHComment(GHBase):

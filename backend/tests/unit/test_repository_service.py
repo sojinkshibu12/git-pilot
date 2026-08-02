@@ -64,12 +64,17 @@ class _FakeGitHub:
         await self._maybe_fail()
         return self.repos
 
-    async def list_repositories_page(self, token: str, *, page: int = 1, per_page: int = 9):
-        self.calls.append(("list_repositories_page", (token, page, per_page)))
+    async def list_repositories_page(
+        self, token: str, *, page: int = 1, per_page: int = 9, q: str | None = None
+    ):
+        self.calls.append(("list_repositories_page", (token, page, per_page, q)))
         await self._maybe_fail()
         from app.infrastructure.github.models import GHPaged
 
-        return GHPaged(items=self.repos, next_page=None, total_count=len(self.repos))
+        items = self.repos
+        if q:
+            items = [r for r in self.repos if q.replace(" user:octocat", "") in r.name]
+        return GHPaged(items=items, next_page=None, total_count=len(items))
 
     async def get_commit_count_for_user(self, token, owner, repo, author):
         self.calls.append(("get_commit_count_for_user", (owner, repo, author)))
@@ -111,6 +116,10 @@ class _FakeGitHub:
     async def list_commits(self, token, owner, repo, *, sha=None):
         await self._maybe_fail()
         return []
+
+    async def get_commit(self, token, owner, repo, ref):
+        await self._maybe_fail()
+        return {"sha": ref}
 
     async def merge_branch(self, token, owner, repo, *, base, head):
         self.calls.append(("merge_branch", (owner, repo, base, head)))
@@ -155,6 +164,22 @@ class _FakeGitHub:
     async def list_issues(self, token, owner, repo, *, state="open"):
         await self._maybe_fail()
         return []
+
+    async def list_assigned_issues(self, token, *, state="open"):
+        self.calls.append(("list_assigned_issues", (state,)))
+        await self._maybe_fail()
+        return [
+            GHIssue.model_validate(
+                {
+                    "id": 9,
+                    "number": 5,
+                    "state": state,
+                    "title": "assigned",
+                    "html_url": "",
+                    "repository": {"full_name": "a/repo"},
+                }
+            )
+        ]
 
     async def get_issue(self, token, owner, repo, number):
         await self._maybe_fail()
@@ -278,6 +303,11 @@ async def test_read_operations():
         assert paginated["total_pages"] == 1
         assert paginated["repositories"][0]["contributions"] == 7
 
+        searched = await svc.list_repositories_paginated(user_id, q="repo")
+        assert searched["repositories"][0]["name"] == "repo"
+        searched_empty = await svc.list_repositories_paginated(user_id, q="nope")
+        assert searched_empty["repositories"] == []
+
         # No login → contributions None.
         tokens = _FakeTokens()
         tokens.login = None
@@ -304,10 +334,14 @@ async def test_read_operations():
 
         assert await svc.list_branches(user_id, "a", "repo") == []
         assert await svc.list_commits(user_id, "a", "repo", sha="main") == []
+        assert (await svc.get_commit(user_id, "a", "repo", "abc"))["sha"] == "abc"
         assert await svc.list_pull_requests(user_id, "a", "repo") == []
         assert (await svc.get_pull_request(user_id, "a", "repo", 1))["number"] == 1
         assert await svc.list_issues(user_id, "a", "repo") == []
         assert (await svc.get_issue(user_id, "a", "repo", 2)).number == 2
+        assigned = await svc.list_assigned_issues(user_id, state="open")
+        assert assigned[0].title == "assigned"
+        assert assigned[0].repository["full_name"] == "a/repo"
         assert await svc.list_releases(user_id, "a", "repo") == []
         assert await svc.list_labels(user_id, "a", "repo") == []
         assert await svc.list_milestones(user_id, "a", "repo") == []
@@ -412,6 +446,7 @@ async def test_all_github_error_branches():
         await _assert_fails(lambda s: s.list_branches(uid, "a", "repo"))
         await _assert_fails(lambda s: s.create_branch(uid, "a", "repo", name="b", from_sha="s"))
         await _assert_fails(lambda s: s.list_commits(uid, "a", "repo"))
+        await _assert_fails(lambda s: s.get_commit(uid, "a", "repo", "abc"))
         await _assert_fails(lambda s: s.merge_branch(uid, "a", "repo", base="m", head="h"))
         await _assert_fails(lambda s: s.list_pull_requests(uid, "a", "repo"))
         await _assert_fails(lambda s: s.get_pull_request(uid, "a", "repo", 1))
@@ -422,6 +457,7 @@ async def test_all_github_error_branches():
         await _assert_fails(lambda s: s.request_reviewers(uid, "a", "repo", 1, reviewers=["x"]))
         await _assert_fails(lambda s: s.submit_review(uid, "a", "repo", 1, body="b", event="A"))
         await _assert_fails(lambda s: s.list_issues(uid, "a", "repo"))
+        await _assert_fails(lambda s: s.list_assigned_issues(uid))
         await _assert_fails(lambda s: s.get_issue(uid, "a", "repo", 1))
         await _assert_fails(lambda s: s.create_issue(uid, "a", "repo", title="t"))
         await _assert_fails(lambda s: s.update_issue(uid, "a", "repo", 1, state="closed"))

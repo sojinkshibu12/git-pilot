@@ -394,17 +394,29 @@ class GitHubAPIClient:
         per_page: int = 30,
         visibility: str | None = None,
         affiliation: str | None = None,
+        q: str | None = None,
     ) -> GHPaged:
         """Fetch a single page of the user's repositories with pagination meta.
 
         GitHub does not return an exact total for this endpoint, so the total is
         derived from the `rel="last"` link (exact when the last page is partial).
+        When `q` is provided, delegates to the search API (`user:` scoped).
         """
         params: dict[str, Any] = {"page": page, "per_page": per_page}
         if visibility:
             params["visibility"] = visibility
         if affiliation:
             params["affiliation"] = affiliation
+        if q:
+            resp = await self._fetch_with_etag(
+                "GET", "/search/repositories", token, params={**params, "q": q}
+            )
+            raw = resp.json()
+            items = [GHRepository.model_validate(item) for item in raw.get("items", [])]
+            return GHPaged(
+                items=items,
+                total_count=int(raw.get("total_count") or 0),
+            )
         resp = await self._fetch_with_etag("GET", "/user/repos", token, params=params)
         items = [GHRepository.model_validate(item) for item in resp.json()]
         link = resp.headers.get("Link", "")
@@ -849,6 +861,17 @@ class GitHubAPIClient:
             token,
             model=GHIssue,
             params={"state": state, "per_page": 100},
+        )
+
+    async def list_assigned_issues(
+        self, token: str, *, state: str = "open", per_page: int = 100
+    ) -> list[GHIssue]:
+        """Issues assigned to the authenticated user across all repositories."""
+        return await self.paginate(
+            "/issues",
+            token,
+            model=GHIssue,
+            params={"filter": "assigned", "state": state, "per_page": per_page},
         )
 
     async def get_issue(self, token: str, owner: str, repo: str, number: int) -> GHIssue:

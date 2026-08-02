@@ -182,13 +182,16 @@ class FakeGitHubClient:
         return [GHRepository.model_validate(r) for r in self.repos]
 
     async def list_repositories_page(
-        self, token: str, *, page: int = 1, per_page: int = 30, **kwargs
+        self, token: str, *, page: int = 1, per_page: int = 30, q: str | None = None, **kwargs
     ) -> object:
         from app.infrastructure.github.models import GHPaged, GHRepository
 
         start = (page - 1) * per_page
         items = [GHRepository.model_validate(r) for r in self.repos[start : start + per_page]]
-        total = len(self.repos)
+        if q:
+            needle = q.split(" ")[0].lower()
+            items = [r for r in items if needle in r.name.lower()]
+        total = len(items)
         return GHPaged(
             items=items,
             next_page=None,
@@ -272,6 +275,27 @@ class FakeGitHubClient:
             )
         ]
 
+    async def get_commit(self, token: str, owner: str, repo: str, ref: str):
+        from app.infrastructure.github.models import GHCommit
+
+        return GHCommit.model_validate(
+            {
+                "sha": ref,
+                "message": "commit",
+                "author": {"login": "dev", "name": "Dev", "email": "dev@e.com"},
+                "files": [
+                    {
+                        "filename": "src/app.py",
+                        "status": "modified",
+                        "additions": 3,
+                        "deletions": 1,
+                        "changes": 4,
+                        "patch": "@@ -1,3 +1,5 @@\n-old\n+new\n",
+                    }
+                ],
+            }
+        )
+
     async def merge_branch(self, token: str, owner: str, repo: str, *, base: str, head: str):
         from app.infrastructure.github.models import GHCommit
 
@@ -329,6 +353,22 @@ class FakeGitHubClient:
         return [
             GHIssue.model_validate(
                 {"id": 1, "number": 1, "state": state, "title": "Issue", "html_url": ""}
+            )
+        ]
+
+    async def list_assigned_issues(self, token: str, *, state: str = "open"):
+        from app.infrastructure.github.models import GHIssue
+
+        return [
+            GHIssue.model_validate(
+                {
+                    "id": 5,
+                    "number": 12,
+                    "state": state,
+                    "title": "Assigned issue",
+                    "html_url": "",
+                    "repository": {"full_name": "acme/repo"},
+                }
             )
         ]
 
@@ -541,7 +581,7 @@ def _mock_github_token_endpoint():
                 json={
                     "access_token": "gho_test_access_token",
                     "token_type": "bearer",
-                    "scope": "read:user user:email",
+                    "scope": "read:user user:email repo",
                 },
             )
         )
