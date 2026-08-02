@@ -191,6 +191,51 @@ async def test_list_repositories_page_no_last(respx_mock):
 
 
 @pytest.mark.asyncio
+async def test_search_repositories_page(respx_mock):
+    client = GitHubAPIClient(_settings(), _FakeRedis())
+    respx_mock.get("https://api.github.com/search/repositories").mock(
+        respx.MockResponse(
+            200,
+            json={
+                "total_count": 1,
+                "items": [_repo_payload("found", rid=42)],
+            },
+        )
+    )
+    page = await client.list_repositories_page("tok", page=1, per_page=12, q="found user:octo")
+    assert len(page.items) == 1
+    assert page.items[0].name == "found"
+    assert page.total_count == 1
+    assert page.next_page is None
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_list_assigned_issues(respx_mock):
+    client = GitHubAPIClient(_settings(), _FakeRedis())
+    respx_mock.get("https://api.github.com/issues").mock(
+        respx.MockResponse(
+            200,
+            json=[
+                {
+                    "id": 5,
+                    "number": 12,
+                    "state": "open",
+                    "title": "Assigned",
+                    "html_url": "https://github.com/a/repo/issues/12",
+                    "repository": {"full_name": "a/repo"},
+                }
+            ],
+        )
+    )
+    issues = await client.list_assigned_issues("tok", state="open")
+    assert len(issues) == 1
+    assert issues[0].number == 12
+    assert issues[0].repository["full_name"] == "a/repo"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_get_commit_count_for_user_cache_hit_and_miss(respx_mock):
     redis = _FakeRedis()
     client = GitHubAPIClient(_settings(), redis)

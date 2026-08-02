@@ -108,9 +108,10 @@ async def list_repositories(
     services: Annotated[Services, Depends(get_services)],
     page: int = Query(1, ge=1),
     per_page: int = Query(9, ge=1, le=100),
+    q: str | None = Query(None, max_length=200, description="Search query (name/description)"),
 ) -> dict[str, Any]:
     return await services.repos.list_repositories_paginated(
-        context.user.id, page=page, per_page=per_page
+        context.user.id, page=page, per_page=per_page, q=q
     )
 
 
@@ -151,6 +152,17 @@ async def list_commits(
     sha: str | None = None,
 ) -> dict[str, Any]:
     return {"commits": await services.repos.list_commits(context.user.id, owner, repo, sha=sha)}
+
+
+@router.get("/{owner}/{repo}/commits/{ref}", summary="Get commit with files/diff")
+async def get_commit(
+    owner: str,
+    repo: str,
+    ref: str,
+    context: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    services: Annotated[Services, Depends(get_services)],
+) -> Any:
+    return await services.repos.get_commit(context.user.id, owner, repo, ref)
 
 
 @router.get("/{owner}/{repo}/pulls", summary="List pull requests")

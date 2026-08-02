@@ -13,10 +13,15 @@ from typing import Any
 
 from app.application.services.audit_service import AuditService
 from app.application.services.token_service import TokenService
+from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.domain.models.enums import AuditEventType
 from app.infrastructure.github.client import GitHubAPIClient
-from app.infrastructure.github.exceptions import GitHubClientError, to_domain_exception
+from app.infrastructure.github.exceptions import (
+    GitHubClientError,
+    GitHubNotFoundError,
+    to_domain_exception,
+)
 
 logger = get_logger("repos")
 
@@ -63,14 +68,24 @@ class RepositoryService:
         return repos
 
     async def list_repositories_paginated(
-        self, user_id: uuid.UUID, *, page: int = 1, per_page: int = 9
+        self,
+        user_id: uuid.UUID,
+        *,
+        page: int = 1,
+        per_page: int = 9,
+        q: str | None = None,
     ) -> dict[str, Any]:
         """Paginated repository list, each repo annotated with the user's commit
         contribution count (GitHub-style "commits contributed")."""
         token = await self._token_for(user_id)
         login = await self._tokens.github_login_for_user(user_id)
         try:
-            paged = await self._github.list_repositories_page(token, page=page, per_page=per_page)
+            paged = await self._github.list_repositories_page(
+                token,
+                page=page,
+                per_page=per_page,
+                q=self._search_query(q, login),
+            )
         except GitHubClientError as exc:
             raise to_domain_exception(exc) from exc
 
@@ -122,6 +137,18 @@ class RepositoryService:
 
         results = await asyncio.gather(*(_one(repo) for repo in repos))
         return dict(results)
+
+    @staticmethod
+    def _search_query(q: str | None, login: str | None) -> str | None:
+        """Scope a repository search to the authenticated user's own repos."""
+        if not q:
+            return None
+        query = q.strip()
+        if not query:
+            return None
+        if login:
+            return f"{query} user:{login}"
+        return query
 
     async def get_repository(self, user_id: uuid.UUID, owner: str, repo: str) -> Any:
         token = await self._token_for(user_id)
@@ -194,6 +221,13 @@ class RepositoryService:
         token = await self._token_for(user_id)
         try:
             return await self._github.list_commits(token, owner, repo, sha=sha)
+        except GitHubClientError as exc:
+            raise to_domain_exception(exc) from exc
+
+    async def get_commit(self, user_id: uuid.UUID, owner: str, repo: str, ref: str) -> Any:
+        token = await self._token_for(user_id)
+        try:
+            return await self._github.get_commit(token, owner, repo, ref)
         except GitHubClientError as exc:
             raise to_domain_exception(exc) from exc
 
@@ -304,6 +338,19 @@ class RepositoryService:
         token = await self._token_for(user_id)
         try:
             return await self._github.list_issues(token, owner, repo, state=state)
+        except GitHubClientError as exc:
+            raise to_domain_exception(exc) from exc
+
+    async def list_assigned_issues(self, user_id: uuid.UUID, *, state: str = "open") -> list[Any]:
+        token = await self._token_for(user_id)
+        try:
+            return await self._github.list_assigned_issues(token, state=state)
+        except GitHubNotFoundError as exc:
+            raise NotFoundError(
+                "GitHub couldn't list your assigned issues. Your GitHub token may "
+                "be missing the 'repo' scope required to read issues across your "
+                "repositories. Re-link your GitHub account to grant access."
+            ) from exc
         except GitHubClientError as exc:
             raise to_domain_exception(exc) from exc
 

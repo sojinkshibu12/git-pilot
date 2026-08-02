@@ -58,7 +58,11 @@ async def test_full_oauth_login_creates_user_and_sets_cookie(client, fake_github
 
     resp = await client.get(
         "/api/v1/oauth/github/callback",
-        params={"state": state, "code": _token_for(challenge), "scope": "read:user user:email"},
+        params={
+            "state": state,
+            "code": _token_for(challenge),
+            "scope": "read:user user:email repo",
+        },
         follow_redirects=False,
     )
     assert resp.status_code == 303

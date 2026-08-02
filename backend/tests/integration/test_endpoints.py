@@ -161,10 +161,15 @@ async def test_repository_read_endpoints(client, app):
     await _link_github(app, email)
 
     assert (await client.get("/api/v1/repositories/")).status_code == 200
+    assert (await client.get("/api/v1/repositories/?q=repo")).status_code == 200
+    assert (await client.get("/api/v1/issues/assigned")).status_code == 200
     assert (await client.get("/api/v1/repositories/contributions")).status_code == 200
     assert (await client.get("/api/v1/repositories/acme/repo")).status_code == 200
     assert (await client.get("/api/v1/repositories/acme/repo/branches")).status_code == 200
     assert (await client.get("/api/v1/repositories/acme/repo/commits")).status_code == 200
+    resp = await client.get("/api/v1/repositories/acme/repo/commits/abc123")
+    assert resp.status_code == 200
+    assert resp.json()["files"][0]["filename"] == "src/app.py"
     assert (await client.get("/api/v1/repositories/acme/repo/pulls")).status_code == 200
     assert (await client.get("/api/v1/repositories/acme/repo/pulls/1")).status_code == 200
     assert (await client.get("/api/v1/repositories/acme/repo/issues")).status_code == 200

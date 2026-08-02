@@ -231,9 +231,17 @@ export default function DashboardPage() {
       <section>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Your repositories</h2>
-          <span className="text-sm text-muted-foreground">
-            {repos?.total_count ? `${repos.total_count} repos` : ""}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">
+              {repos?.total_count ? `${repos.total_count} repos` : ""}
+            </span>
+            <Link
+              href="/dashboard/repositories"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              View all →
+            </Link>
+          </div>
         </div>
         {isLoading && <Skeletons />}
         {isError && (
@@ -266,64 +274,65 @@ export default function DashboardPage() {
                 isFetching && page > 1 && "opacity-60",
               )}
             >
-              {repos.repositories.map((repo, i) => (
-                <motion.a
-                  key={repo.id}
-                  href={repo.html_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                  className="glass-card group p-5 transition-all hover:-translate-y-1"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="flex items-center gap-2 truncate font-medium">
-                        <GitFork className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate group-hover:text-primary">
-                          {repo.full_name}
-                        </span>
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                        {repo.description ?? "No description provided."}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                        repo.private
-                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                          : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-                      )}
-                    >
-                      {repo.private ? "Private" : "Public"}
-                    </span>
-                  </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <Star className="h-3.5 w-3.5" /> {repo.stargazers_count}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <GitFork className="h-3.5 w-3.5" /> {repo.forks_count}
-                    </span>
-                    {typeof repo.contributions === "number" && (
+              {repos.repositories.map((repo, i) => {
+                const [owner, name] = repo.full_name.split("/");
+                return (
+                  <motion.a
+                    key={repo.id}
+                    href={`/dashboard/repositories/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? repo.name)}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    className="glass-card group p-5 transition-all hover:-translate-y-1"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 truncate font-medium">
+                          <GitFork className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate group-hover:text-primary">
+                            {repo.full_name}
+                          </span>
+                        </p>
+                        <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                          {repo.description ?? "No description provided."}
+                        </p>
+                      </div>
                       <span
-                        className="inline-flex items-center gap-1 text-primary"
-                        title="Commits you contributed to this repository"
+                        className={cn(
+                          "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                          repo.private
+                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+                        )}
                       >
-                        <GitCommitHorizontal className="h-3.5 w-3.5" />
-                        {repo.contributions.toLocaleString()} commits
+                        {repo.private ? "Private" : "Public"}
                       </span>
-                    )}
-                    {repo.language && (
-                      <span className="ml-auto rounded-full bg-muted/60 px-2 py-0.5 font-medium">
-                        {repo.language}
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <Star className="h-3.5 w-3.5" /> {repo.stargazers_count}
                       </span>
-                    )}
-                  </div>
-                </motion.a>
-              ))}
+                      <span className="inline-flex items-center gap-1">
+                        <GitFork className="h-3.5 w-3.5" /> {repo.forks_count}
+                      </span>
+                      {typeof repo.contributions === "number" && (
+                        <span
+                          className="inline-flex items-center gap-1 text-primary"
+                          title="Commits you contributed to this repository"
+                        >
+                          <GitCommitHorizontal className="h-3.5 w-3.5" />
+                          {repo.contributions.toLocaleString()} commits
+                        </span>
+                      )}
+                      {repo.language && (
+                        <span className="ml-auto rounded-full bg-muted/60 px-2 py-0.5 font-medium">
+                          {repo.language}
+                        </span>
+                      )}
+                    </div>
+                  </motion.a>
+                );
+              })}
             </div>
             {(repos.total_pages > 1 || page > 1) && (
               <div className="mt-6">
