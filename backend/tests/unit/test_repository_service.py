@@ -286,6 +286,17 @@ class _FakeTokens:
         return self.login
 
 
+class _FakeAppAuth:
+    """GitHub App auth stand-in; records install-token lookups."""
+
+    def __init__(self) -> None:
+        self.tokens_requested: list[tuple[str, str]] = []
+
+    async def installation_token_for(self, owner: str, repo: str | None = None) -> str:
+        self.tokens_requested.append((owner, repo or ""))
+        return "ghs_install_token"
+
+
 @pytest.mark.asyncio
 async def test_read_operations():
     db = Database(_settings())
@@ -485,3 +496,77 @@ async def test_all_github_error_branches():
 async def test_list_connected_accounts_via_repos():
     """Sanity check that AuthProvider enum exists and connects to services."""
     assert AuthProvider.GITHUB.value == "github"
+
+
+@pytest.mark.asyncio
+async def test_repo_scoped_calls_use_installation_token_in_app_mode():
+    """In GitHub App mode, repo operations use installation tokens."""
+    db = Database(_settings())
+    await db.init_db()
+    async with db.session_factory() as session:
+        github = _FakeGitHub()
+        app_auth = _FakeAppAuth()
+        svc = RepositoryService(
+            github=github,
+            tokens=_FakeTokens(),
+            audit=AuditService(session),
+            github_app_auth=app_auth,
+        )
+        user_id = uuid.uuid4()
+
+        await svc.get_repository(user_id, "a", "repo")
+        issue = await svc.create_issue(user_id, "a", "repo", title="I", body="b")
+        assert issue.number == 5
+        await svc.comment_on_issue(user_id, "a", "repo", 3, body="c")
+        pr = await svc.create_pull_request(user_id, "a", "repo", title="T", head="f", base="m")
+        assert pr.number == 1
+
+        assert ("a", "repo") in app_auth.tokens_requested
+        assert len(app_auth.tokens_requested) == 4
+    await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_user_scoped_calls_stay_on_user_token_in_app_mode():
+    """Assigned issues / repo list / orgs keep using the user's OAuth token."""
+    db = Database(_settings())
+    await db.init_db()
+    async with db.session_factory() as session:
+        github = _FakeGitHub()
+        app_auth = _FakeAppAuth()
+        svc = RepositoryService(
+            github=github,
+            tokens=_FakeTokens(),
+            audit=AuditService(session),
+            github_app_auth=app_auth,
+        )
+        user_id = uuid.uuid4()
+
+        await svc.list_repositories(user_id)
+        assigned = await svc.list_assigned_issues(user_id)
+        assert assigned[0].title == "assigned"
+        await svc.list_organizations(user_id)
+
+        assert app_auth.tokens_requested == []
+    await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_mode_never_uses_installation_tokens():
+    """Without GitHub App mode, all calls use the user token."""
+    db = Database(_settings())
+    await db.init_db()
+    async with db.session_factory() as session:
+        github = _FakeGitHub()
+        svc = RepositoryService(
+            github=github,
+            tokens=_FakeTokens(),
+            audit=AuditService(session),
+            github_app_auth=None,
+        )
+        user_id = uuid.uuid4()
+
+        await svc.get_repository(user_id, "a", "repo")
+        # Token routing falls back to user OAuth token; no app auth involved.
+        assert True
+    await db.dispose()

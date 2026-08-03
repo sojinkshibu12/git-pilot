@@ -20,7 +20,11 @@ All configuration is **env-driven** and validated by Pydantic Settings in
 | `GITHUB_SCOPE` | – | `read:user user:email` | requested scopes |
 | `GITHUB_API_BASE_URL` | – | `https://api.github.com` | proxy base |
 | `GITHUB_WEB_BASE_URL` | – | `https://github.com` | authorize base |
-| `GITHUB_APP_TYPE` | – | `oauth_app` | `oauth_app\|github_app` (github_app is the future upgrade) |
+| `GITHUB_APP_TYPE` | – | `oauth_app` | `oauth_app\|github_app` (github_app enables server-to-server installation tokens) |
+| `GITHUB_APP_ID` | github_app | – | GitHub App id (numeric) |
+| `GITHUB_APP_PRIVATE_KEY` | github_app | – | PEM key **contents** or path to the `.pem` file. Never commit. |
+| `GITHUB_APP_INSTALLATION_ID` | – | – | fixed installation id; if unset it is resolved per-owner via the API |
+| `GITHUB_WEBHOOK_SECRET` | – | – | shared secret verifying GitHub webhook deliveries |
 | `DATABASE_URL` | **yes** | – | `postgresql+asyncpg://…` |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | – | 20 / 40 | SQLAlchemy pool |
 | `DB_ECHO` | – | `false` | SQL echo (dev) |
@@ -55,3 +59,32 @@ All configuration is **env-driven** and validated by Pydantic Settings in
 3. Homepage URL: your frontend origin.
 4. Scopes: `read:user user:email` (extend per feature: `repo`, `workflow`, …).
 5. Put id/secret in `backend/.env`; restart backend.
+
+## GitHub App setup (server-to-server access)
+Switch `GITHUB_APP_TYPE=github_app` to give the backend read/write repository
+access (issues, PRs, contents) via installation tokens, instead of relying only
+on a user's OAuth `repo` scope.
+
+1. GitHub → Settings → Developer → GitHub Apps → New app.
+2. **Permissions**: Metadata (read), Issues (read + write), Pull requests
+   (read + write), Contents (read + write), [optional] Actions/Workflows.
+3. **Events** to subscribe: `issues`, `issue_comment`, `pull_request`,
+   `installation`, `installation_repositories`.
+4. Generate a **private key**; save the `.pem` file. Optionally set a
+   **Webhook URL + secret** for integration events.
+5. Config:
+   ```bash
+   GITHUB_APP_TYPE=github_app
+   GITHUB_APP_ID=<numeric app id>
+   GITHUB_APP_PRIVATE_KEY=/path/to/your-app.private-key.pem   # or PEM contents
+   GITHUB_WEBHOOK_SECRET=your-secret
+   ```
+6. Install the app on the account(s)/org(s) whose repos GitPilot accesses. If
+   you want a single fixed installation, set `GITHUB_APP_INSTALLATION_ID`;
+   otherwise each repo's installation is resolved automatically.
+7. User sign-in still uses the app's `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`.
+
+> Repo **write** actions (e.g. commenting on issues) use an **installation token**,
+> which the app's permissions grant. Read-only **assigned-issues** and
+> user-profile/contribution calls still use the signed-in user's OAuth token, so
+> those users still need the `repo` scope to appear in "Assigned to me".

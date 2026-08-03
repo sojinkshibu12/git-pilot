@@ -58,5 +58,6 @@ are tracked below. Revisit after every change to the OAuth or session path.
 ## Assumptions
 - TLS terminated at Nginx; backend never exposed directly.
 - Operators rotate `SECRET_KEY` and GitHub secrets per incident policy.
-- GitHub App path (installation tokens) is the documented future upgrade;
-  threat T13 reduces further (installation tokens are least-privileged).
+- GitHub App mode (`GITHUB_APP_TYPE=github_app`) uses least-privileged
+  installation tokens for repo-scoped operations; T13 mitigation is strongest
+  in that mode.

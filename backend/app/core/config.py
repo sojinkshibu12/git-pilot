@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -49,14 +50,28 @@ class Settings(BaseSettings):
     # Separate key that encrypts session payloads.
     SESSION_ENCRYPTION_KEY: str = Field(default="")
 
-    # --- OAuth / GitHub App ---
+    # --- Auth provider: OAuth App or GitHub App ---
+    GITHUB_APP_TYPE: Literal["oauth_app", "github_app"] = "oauth_app"
+
+    # --- GitHub OAuth App (user-to-server OAuth credentials) ---
+    # For a GitHub App, client_id/client_secret ARE the app's OAuth credentials
+    # (used for user-to-server sign-in); installation tokens extend that.
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
     GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oauth/github/callback"
     GITHUB_SCOPE: str = "read:user user:email repo"
     GITHUB_API_BASE_URL: str = "https://api.github.com"
     GITHUB_WEB_BASE_URL: str = "https://github.com"
-    GITHUB_APP_TYPE: Literal["oauth_app", "github_app"] = "oauth_app"
+
+    # --- GitHub App (server-to-server installation access) ---
+    # Optional: only used when GITHUB_APP_TYPE == "github_app".
+    GITHUB_APP_ID: int | None = None
+    # PEM-encoded private key (contents) or path to a file. Never commit.
+    GITHUB_APP_PRIVATE_KEY: str | None = None
+    # Fixed installation id; when unset, resolved per-owner via the API.
+    GITHUB_APP_INSTALLATION_ID: int | None = None
+    # Shared secret used to verify GitHub webhook deliveries (fixed app webhook secret).
+    GITHUB_WEBHOOK_SECRET: str = ""
 
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://gitpilot:gitpilot@localhost:5432/gitpilot"
@@ -109,11 +124,47 @@ class Settings(BaseSettings):
     def _normalize_scopes(cls, v: str) -> str:
         return " ".join(dict.fromkeys(v.split()))
 
+    @field_validator("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", mode="before")
+    @classmethod
+    def _empty_int_to_none(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @model_validator(mode="after")
     def _validate(self) -> Settings:
         if self.APP_ENV != Environment.TESTING and not self.GITHUB_CLIENT_ID:
             raise ValueError("GITHUB_CLIENT_ID must be configured for non-testing environments")
+        if self.GITHUB_APP_TYPE == "github_app":
+            if not self.GITHUB_APP_ID:
+                raise ValueError("GITHUB_APP_ID must be set when GITHUB_APP_TYPE=github_app")
+            if not self.GITHUB_APP_PRIVATE_KEY:
+                raise ValueError(
+                    "GITHUB_APP_PRIVATE_KEY must be set when GITHUB_APP_TYPE=github_app"
+                )
         return self
+
+    @property
+    def github_app_enabled(self) -> bool:
+        """True when server-to-server GitHub App auth is configured."""
+        return self.GITHUB_APP_TYPE == "github_app" and bool(
+            self.GITHUB_APP_ID and self.GITHUB_APP_PRIVATE_KEY
+        )
+
+    def github_private_key(self) -> str | None:
+        """Return the PEM private key contents, resolving a file path if given."""
+        value = self.GITHUB_APP_PRIVATE_KEY
+        if not value:
+            return None
+        candidate = value.strip()
+        if candidate.startswith("-----BEGIN"):
+            return candidate
+        path = Path(candidate)
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+        return candidate
 
     @property
     def is_production(self) -> bool:

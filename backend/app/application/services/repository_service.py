@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 from app.application.services.audit_service import AuditService
+from app.application.services.github_app_auth_service import GitHubAppAuthService
 from app.application.services.token_service import TokenService
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
@@ -28,13 +29,30 @@ logger = get_logger("repos")
 
 class RepositoryService:
     def __init__(
-        self, *, github: GitHubAPIClient, tokens: TokenService, audit: AuditService
+        self,
+        *,
+        github: GitHubAPIClient,
+        tokens: TokenService,
+        audit: AuditService,
+        github_app_auth: GitHubAppAuthService | None = None,
     ) -> None:
         self._github = github
         self._tokens = tokens
         self._audit = audit
+        self._app_auth = github_app_auth
 
     async def _token_for(self, user_id: uuid.UUID) -> str:
+        return await self._tokens.access_token_for_user(user_id)
+
+    async def _repo_token_for(self, user_id: uuid.UUID, owner: str, repo: str) -> str:
+        """Token for repo-scoped calls.
+
+        When GitHub App mode is enabled, repo operations (including write
+        mutations) use an installation access token carrying the app's read/write
+        permissions. User-scoped reads keep using the signed-in user's OAuth token.
+        """
+        if self._app_auth is not None:
+            return await self._app_auth.installation_token_for(owner, repo)
         return await self._tokens.access_token_for_user(user_id)
 
     async def _audit_repo(
@@ -151,7 +169,7 @@ class RepositoryService:
         return query
 
     async def get_repository(self, user_id: uuid.UUID, owner: str, repo: str) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             result = await self._github.get_repository(token, owner, repo)
         except GitHubClientError as exc:
@@ -172,7 +190,7 @@ class RepositoryService:
         return repo
 
     async def delete_repository(self, user_id: uuid.UUID, owner: str, repo: str) -> None:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             await self._github.delete_repository(token, owner, repo)
         except GitHubClientError as exc:
@@ -182,7 +200,7 @@ class RepositoryService:
     async def fork_repository(
         self, user_id: uuid.UUID, owner: str, repo: str, *, organization: str | None = None
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             forked = await self._github.fork_repository(
                 token, owner, repo, organization=organization
@@ -194,7 +212,7 @@ class RepositoryService:
 
     # -- Branches / commits -------------------------------------------- #
     async def list_branches(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_branches(token, owner, repo)
         except GitHubClientError as exc:
@@ -203,7 +221,7 @@ class RepositoryService:
     async def create_branch(
         self, user_id: uuid.UUID, owner: str, repo: str, *, name: str, from_sha: str
     ) -> None:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             await self._github.create_branch(token, owner, repo, name=name, from_sha=from_sha)
         except GitHubClientError as exc:
@@ -218,14 +236,14 @@ class RepositoryService:
     async def list_commits(
         self, user_id: uuid.UUID, owner: str, repo: str, *, sha: str | None = None
     ) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_commits(token, owner, repo, sha=sha)
         except GitHubClientError as exc:
             raise to_domain_exception(exc) from exc
 
     async def get_commit(self, user_id: uuid.UUID, owner: str, repo: str, ref: str) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.get_commit(token, owner, repo, ref)
         except GitHubClientError as exc:
@@ -234,7 +252,7 @@ class RepositoryService:
     async def merge_branch(
         self, user_id: uuid.UUID, owner: str, repo: str, *, base: str, head: str
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             merged = await self._github.merge_branch(token, owner, repo, base=base, head=head)
         except GitHubClientError as exc:
@@ -251,14 +269,14 @@ class RepositoryService:
     async def list_pull_requests(
         self, user_id: uuid.UUID, owner: str, repo: str, *, state: str = "open"
     ) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_pull_requests(token, owner, repo, state=state)
         except GitHubClientError as exc:
             raise to_domain_exception(exc) from exc
 
     async def get_pull_request(self, user_id: uuid.UUID, owner: str, repo: str, number: int) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.get_pull_request(token, owner, repo, number)
         except GitHubClientError as exc:
@@ -275,7 +293,7 @@ class RepositoryService:
         base: str,
         body: str | None = None,
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             pr = await self._github.create_pull_request(
                 token, owner, repo, title=title, head=head, base=base, body=body
@@ -293,7 +311,7 @@ class RepositoryService:
     async def merge_pull_request(
         self, user_id: uuid.UUID, owner: str, repo: str, number: int, *, merge_method: str = "merge"
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             pr = await self._github.merge_pull_request(
                 token, owner, repo, number, merge_method=merge_method
@@ -308,7 +326,7 @@ class RepositoryService:
     async def request_reviewers(
         self, user_id: uuid.UUID, owner: str, repo: str, number: int, *, reviewers: list[str]
     ) -> None:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             await self._github.request_reviewers(token, owner, repo, number, reviewers=reviewers)
         except GitHubClientError as exc:
@@ -323,7 +341,7 @@ class RepositoryService:
     async def submit_review(
         self, user_id: uuid.UUID, owner: str, repo: str, number: int, *, body: str, event: str
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.submit_review(
                 token, owner, repo, number, body=body, event=event
@@ -335,7 +353,7 @@ class RepositoryService:
     async def list_issues(
         self, user_id: uuid.UUID, owner: str, repo: str, *, state: str = "open"
     ) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_issues(token, owner, repo, state=state)
         except GitHubClientError as exc:
@@ -355,7 +373,7 @@ class RepositoryService:
             raise to_domain_exception(exc) from exc
 
     async def get_issue(self, user_id: uuid.UUID, owner: str, repo: str, number: int) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.get_issue(token, owner, repo, number)
         except GitHubClientError as exc:
@@ -364,7 +382,7 @@ class RepositoryService:
     async def create_issue(
         self, user_id: uuid.UUID, owner: str, repo: str, *, title: str, body: str | None = None
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             issue = await self._github.create_issue(token, owner, repo, title=title, body=body)
         except GitHubClientError as exc:
@@ -380,7 +398,7 @@ class RepositoryService:
     async def update_issue(
         self, user_id: uuid.UUID, owner: str, repo: str, number: int, **fields: Any
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             issue = await self._github.update_issue(token, owner, repo, number, **fields)
         except GitHubClientError as exc:
@@ -399,7 +417,7 @@ class RepositoryService:
     async def comment_on_issue(
         self, user_id: uuid.UUID, owner: str, repo: str, number: int, *, body: str
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.comment_on_issue(token, owner, repo, number, body=body)
         except GitHubClientError as exc:
@@ -407,7 +425,7 @@ class RepositoryService:
 
     # -- Releases / labels / milestones --------------------------------- #
     async def list_releases(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_releases(token, owner, repo)
         except GitHubClientError as exc:
@@ -416,7 +434,7 @@ class RepositoryService:
     async def create_release(
         self, user_id: uuid.UUID, owner: str, repo: str, **payload: Any
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             rel = await self._github.create_release(token, owner, repo, **payload)
         except GitHubClientError as exc:
@@ -430,7 +448,7 @@ class RepositoryService:
         return rel
 
     async def list_labels(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_labels(token, owner, repo)
         except GitHubClientError as exc:
@@ -446,7 +464,7 @@ class RepositoryService:
         color: str,
         description: str | None = None,
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.create_label(
                 token, owner, repo, name=name, color=color, description=description
@@ -455,7 +473,7 @@ class RepositoryService:
             raise to_domain_exception(exc) from exc
 
     async def list_milestones(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_milestones(token, owner, repo)
         except GitHubClientError as exc:
@@ -464,7 +482,7 @@ class RepositoryService:
     async def create_milestone(
         self, user_id: uuid.UUID, owner: str, repo: str, *, title: str, due_on: str | None = None
     ) -> Any:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.create_milestone(
                 token, owner, repo, title=title, due_on=due_on
@@ -474,7 +492,7 @@ class RepositoryService:
 
     # -- Actions / workflows -------------------------------------------- #
     async def list_workflows(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_workflows(token, owner, repo)
         except GitHubClientError as exc:
@@ -490,7 +508,7 @@ class RepositoryService:
         ref: str,
         inputs: dict[str, Any] | None = None,
     ) -> None:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             await self._github.dispatch_workflow(
                 token, owner, repo, workflow_id=workflow_id, ref=ref, inputs=inputs
@@ -505,7 +523,7 @@ class RepositoryService:
         )
 
     async def list_workflow_runs(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_workflow_runs(token, owner, repo)
         except GitHubClientError as exc:
@@ -513,14 +531,14 @@ class RepositoryService:
 
     # -- Teams / collaborators / packages / discussions ----------------- #
     async def list_teams(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_teams(token, owner, repo)
         except GitHubClientError as exc:
             raise to_domain_exception(exc) from exc
 
     async def list_collaborators(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_collaborators(token, owner, repo)
         except GitHubClientError as exc:
@@ -534,7 +552,7 @@ class RepositoryService:
             raise to_domain_exception(exc) from exc
 
     async def list_discussions(self, user_id: uuid.UUID, owner: str, repo: str) -> list[Any]:
-        token = await self._token_for(user_id)
+        token = await self._repo_token_for(user_id, owner, repo)
         try:
             return await self._github.list_discussions(token, owner, repo)
         except GitHubClientError as exc:

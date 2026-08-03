@@ -19,7 +19,12 @@ x-backend-common: &backend-common
     GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}
     GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET in .env}
     GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI}
-    GITHUB_SCOPE: ${GITHUB_SCOPE:-read:user user:email}
+    GITHUB_SCOPE: ${GITHUB_SCOPE:-read:user user:email repo}
+    GITHUB_APP_TYPE: ${GITHUB_APP_TYPE:-oauth_app}
+    GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+    GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+    GITHUB_APP_INSTALLATION_ID: ${GITHUB_APP_INSTALLATION_ID:-}
+    GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
     DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     REDIS_URL: redis://redis:6379/0
     CORS_ORIGINS: '["http://localhost:3000"]'
@@ -92,6 +97,9 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--proxy-headers"]
     expose:
       - "8000"
+    volumes:
+      # Mount the GitHub App private key (read-only) so the container can sign app JWTs.
+      - "./git-pilot1.2026-08-03.private-key.pem:/run/secrets/github-app.private-key.pem:ro"
     # Uncomment to expose the API directly (dev):
     # ports:
     #   - "${BACKEND_PORT:-8000}:8000"

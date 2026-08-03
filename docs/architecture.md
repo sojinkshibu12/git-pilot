@@ -84,10 +84,14 @@ application services via constructor injection (see `app/application/dependencie
 
 - **Horizontal scaling:** stateless API replicas share Redis (sessions, cache,
   rate limits) and PostgreSQL. No local sticky state.
-- **Migration path to GitHub Apps:** the GitHub client abstracts auth via a
-  bearer token; swapping the OAuth App for a GitHub App changes token issuance
-  (installation tokens, refresh via `/login/oauth/access_token` already handled
-  in `TokenService`) without touching controllers.
+- **GitHub Apps (server-to-server):** the GitHub client abstracts auth via a
+  bearer token. Setting `GITHUB_APP_TYPE=github_app` enables
+  `GitHubAppAuthService`, which signs an RS256 app JWT, resolves the app
+  installation per owner/repo, and issues cached installation access tokens.
+  Repo-scoped calls (issues, PRs, contents, comments) then run with the app's
+  read/write permissions via `RepositoryService._repo_token_for`, while
+  user-scoped reads (assigned issues, profile/contributions) keep the signed-in
+  user's OAuth token. Controllers are unchanged.
 - **Observability:** structured JSON logs with `request_id`/`correlation_id`,
   health/readiness endpoints, and audit stream.
 - **Cache:** ETag conditional requests + TTL cache in Redis; rate-limit counters.
