@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.audit_service import AuditService
 from app.application.services.auth_service import AuthService
 from app.application.services.contribution_service import ContributionService
+from app.application.services.github_app_auth_service import GitHubAppAuthService
 from app.application.services.oauth_service import OAuthService
 from app.application.services.repository_service import RepositoryService
 from app.application.services.session_service import SessionService
@@ -44,6 +45,7 @@ class Services:
     repos: RepositoryService
     contributions: ContributionService
     rate_limiter: RateLimiter
+    github_app_auth: GitHubAppAuthService
 
 
 async def get_services(
@@ -73,7 +75,13 @@ async def get_services(
         tokens=tokens,
     )
     users = UserService(db=session, audit=audit, sessions=sessions, tokens=tokens, github=github)
-    repos = RepositoryService(github=github, tokens=tokens, audit=audit)
+    github_app_auth = GitHubAppAuthService(settings=settings, github=github, redis=redis)
+    repos = RepositoryService(
+        github=github,
+        tokens=tokens,
+        audit=audit,
+        github_app_auth=github_app_auth if settings.github_app_enabled else None,
+    )
     contributions = ContributionService(
         db=session, github=github, tokens=tokens, audit=audit, redis=redis
     )
@@ -94,6 +102,7 @@ async def get_services(
         repos=repos,
         contributions=contributions,
         rate_limiter=rate_limiter,
+        github_app_auth=github_app_auth,
     )
 
 

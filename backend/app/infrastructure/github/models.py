@@ -37,6 +37,28 @@ class GHUser(GHBase):
     updated_at: datetime | None = None
 
 
+class GHInstallation(GHBase):
+    """A GitHub App installation (payload of /app/installations or resolution)."""
+
+    id: int
+    app_id: int | None = None
+    account: GHUser | dict[str, Any] | None = None
+    target_type: str | None = None
+    repository_selection: str = "all"
+    permissions: dict[str, Any] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class GHInstallationToken(GHBase):
+    """Response of POST /app/installations/{id}/access_tokens."""
+
+    token: str
+    expires_at: datetime | None = None
+    permissions: dict[str, Any] | None = None
+    repository_selection: str | None = None
+
+
 class GHEmail(GHBase):
     email: str
     primary: bool = False
